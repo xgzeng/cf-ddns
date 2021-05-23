@@ -1,117 +1,163 @@
-mod file;
 mod network;
 
-use file::{read_file, write_file};
-use human_panic::setup_panic;
-use network::{get_current_ip, get_dns_record_id, get_zone_identifier, update_ddns};
-use quicli::prelude::*;
-use std::path::PathBuf;
-use structopt::StructOpt;
 use anyhow::{Context, Result};
+use directories_next::ProjectDirs;
+use network::{get_current_ipv4, get_current_ipv6, get_record, get_zone, update_record};
+use serde::{Deserialize, Serialize};
+use serde_yaml::{from_str, to_writer};
+use std::{
+    fs::{create_dir_all, read_to_string, File},
+    net::{Ipv4Addr, Ipv6Addr},
+    path::PathBuf,
+    time::Duration,
+};
+use tokio::time::interval;
 
-#[derive(Deserialize)]
+use cloudflare::{
+    endpoints::dns::DnsContent,
+    framework::{
+        async_api::Client as CfClient, auth::Credentials, Environment, HttpApiClientConfig,
+    },
+};
+use reqwest::Client as ReqwClient;
+
+#[derive(Serialize, Deserialize)]
 struct Config {
     api_token: String,
     zone: String,
     domain: String,
+    #[serde(default = "yes")]
+    ipv4: bool,
+    #[serde(default = "no")]
+    ipv6: bool,
+    #[serde(default = "default_duration")]
+    interval: u64,
 }
 
-#[derive(Debug, StructOpt)]
-/// Inform Cloudflare's DDNS service of the current IP address for your domain
-struct Cli {
-    /// Your TOML config file containing all the required options (api_token, zone, domain) which you can use instead of passing the arguments to the command line
-    #[structopt(long = "config", short = "f")]
-    config: Option<PathBuf>,
-
-    /// The api token you need to generate in your Cloudflare profile
-    #[structopt(long = "token", short = "t", required_unless = "config")]
-    api_token: Option<String>,
-
-    /// The zone in which your domain is (usually that is your base domain name)
-    #[structopt(long = "zone", short = "z", required_unless = "config")]
-    zone: Option<String>,
-
-    /// The domain for which you want to report the current IP address
-    #[structopt(long = "domain", short = "d", required_unless = "config")]
-    domain: Option<String>,
-
-    /// Cache file for previously reported IP address (if skipped the IP will be reported on every execution)
-    #[structopt(long = "cache", short = "c")]
-    cache: Option<PathBuf>,
+#[derive(Serialize, Deserialize, Default)]
+struct Cache {
+    v4: Option<Ipv4Addr>,
+    v6: Option<Ipv6Addr>,
 }
 
-fn main() -> Result<()> {
-    setup_panic!();
-    let args = Cli::from_args();
+#[tokio::main]
+async fn main() -> Result<()> {
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
-    env_logger::from_env(env_logger::Env::default().default_filter_or("info")).init();
+    let dirs = ProjectDirs::from("re", "jcg", "cloudflare-ddns-service")
+        .context("Couldn't find project directories! Is $HOME set?")?;
+    let config_string = read_to_string(dirs.config_dir().join("config.yaml"))
+        .context("couldn't read config file!")?;
+    let config: Config = from_str(&config_string)?;
+    let cache_path = dirs.cache_dir().join("cache.yaml");
+    let mut cache = match read_to_string(&cache_path) {
+        Ok(cache) => from_str(&cache)?,
+        Err(_) => {
+            create_dir_all(dirs.cache_dir())?;
+            Cache::default()
+        }
+    };
 
-    let should_use_cache = args.cache.is_some();
-    let cached_ip: Option<String> = match args.cache.clone() {
-        Some(v) => {
-            if v.exists() {
-                Some(read_file(&v.clone()).context("Could not read cache file")?)
-            } else {
-                Some("0.0.0.0".to_owned())
+    let mut interval = interval(Duration::new(config.interval, 0));
+    let mut reqw_client = ReqwClient::new();
+    let mut cf_client = CfClient::new(
+        Credentials::UserAuthToken {
+            token: config.api_token.clone(),
+        },
+        HttpApiClientConfig::default(),
+        Environment::Production,
+    )?;
+    let zone = get_zone(config.zone.clone(), &mut cf_client).await?;
+    loop {
+        update(
+            &config,
+            &mut cache,
+            &cache_path,
+            &zone,
+            &mut reqw_client,
+            &mut cf_client,
+        )
+        .await?;
+        interval.tick().await;
+    }
+}
+
+async fn update(
+    config: &Config,
+    cache: &mut Cache,
+    cache_path: &PathBuf,
+    zone: &str,
+    reqw_client: &mut ReqwClient,
+    cf_client: &mut CfClient,
+) -> Result<()> {
+    if config.ipv4 {
+        let current = get_current_ipv4(reqw_client).await?;
+        log::debug!("fetched current IP: {}", current.to_string());
+        match cache.v4 {
+            Some(old) if old == current => {
+                log::debug!("ipv4 unchanged, continuing...");
+            }
+            _ => {
+                log::debug!("ipv4 changed, setting record");
+                let rid = get_record(zone, config.domain.clone(), network::A_RECORD, cf_client)
+                    .await
+                    .context("couldn't find record!")?;
+                log::debug!("got record ID {}", rid);
+                update_record(
+                    zone,
+                    &rid,
+                    &config.domain,
+                    DnsContent::A { content: current },
+                    cf_client,
+                )
+                .await?;
+                cache.v4 = Some(current);
+                write_cache(cache, cache_path)?;
             }
         }
-        None => None,
-    };
-
-    let current_ip = get_current_ip()?;
-    if cached_ip.is_some() && current_ip == cached_ip.unwrap() {
-        log::info!("IP is unchanged. Exiting...");
-        return Ok(());
     }
-
-    let (api_token, zone, domain) = match args.config {
-        Some(c) => {
-            let config_str = read_file(&c)?;
-            let config: Config = toml::from_str(&config_str)?;
-            (config.api_token, config.zone, config.domain)
+    if config.ipv6 {
+        let current = get_current_ipv6(reqw_client).await?;
+        log::debug!("fetched current IP: {}", current.to_string());
+        match cache.v6 {
+            Some(old) if old == current => {
+                log::debug!("ipv6 unchanged, continuing...")
+            }
+            _ => {
+                log::debug!("ipv4 changed, setting record");
+                let rid = get_record(zone, config.domain.clone(), network::AAAA_RECORD, cf_client)
+                    .await
+                    .context("couldn't find record!")?;
+                log::debug!("got record ID {}", rid);
+                update_record(
+                    zone,
+                    &rid,
+                    &config.domain,
+                    DnsContent::AAAA { content: current },
+                    cf_client,
+                )
+                .await?;
+                cache.v6 = Some(current);
+                write_cache(cache, cache_path)?;
+            }
         }
-        None => (
-            args.api_token.expect("API token is not set"),
-            args.zone.expect("Zone is not set"),
-            args.domain.expect("Domain is not set"),
-        ),
-    };
-
-    update(&current_ip, &api_token, &zone, &domain)?;
-
-    log::info!(
-        "Successfully updated the A record for {} to {}",
-        &domain, &current_ip
-    );
-
-    if should_use_cache {
-        log::info!(
-            "Saving current IP {} to cache file {:?}...",
-            &current_ip,
-            &args.cache.clone().unwrap()
-        );
-        write_file(&args.cache.unwrap(), &current_ip)?;
     }
-
     Ok(())
 }
 
-fn update(
-    current_ip: &str,
-    api_token: &str,
-    zone: &str,
-    domain: &str,
-) -> Result<()> {
-    let zone_id = get_zone_identifier(&zone, &api_token).context("Error getting the zone identifier")?;
-    let record_id = get_dns_record_id(&zone_id, &domain, &api_token).context("Error getting the DNS record ID")?;
-
-    update_ddns(
-        &current_ip,
-        &domain,
-        &zone_id,
-        &record_id,
-        &api_token,
-    ).context("Error updating the DNS record")?;
-
+fn write_cache(cache: &mut Cache, cache_path: &PathBuf) -> Result<()> {
+    to_writer(File::create(cache_path)?, cache)?;
     Ok(())
+}
+
+fn yes() -> bool {
+    true
+}
+
+fn no() -> bool {
+    false
+}
+
+fn default_duration() -> u64 {
+    60
 }

@@ -1,26 +1,24 @@
 [package]
-name = "cloudflare-ddns"
-version = "0.3.0"
-authors = ["Rostislav Raykov <z@zbrox.org>"]
+name = "cloudflare-ddns-service"
+version = "0.4.0"
+authors = ["Jan Christian Grünhage <jan.christian@gruenhage.xyz>"]
 edition = "2018"
-description = "A simple CLI tool to use Cloudflare's free DDNS service"
-repository = "https://github.com/zbrox/cloudflare-ddns"
-homepage = "https://github.com/zbrox/cloudflare-ddns"
-keywords = ["cloudflare", "ddns", "cli"]
+description = "A daemon to use Cloudflare as a DDNS provider"
+repository = "https://git.jcg.re/jcgruenhage/cloudflare-ddns-service"
+homepage = "https://git.jcg.re/jcgruenhage/cloudflare-ddns-service"
+keywords = ["cloudflare", "ddns"]
 categories = ["command-line-utilities"]
-license = "MIT"
-documentation = "https://github.com/zbrox/cloudflare-ddns"
+license-file = "LICENSE"
+documentation = "https://git.jcg.re/jcgruenhage/cloudflare-ddns-service"
 readme = "README.md"
 
 [dependencies]
-quicli = "0.4.0"
-structopt = "0.3.13"
-reqwest= { version = "0.10.4", features = ["blocking", "json"] }
-serde = "1.0.106"
-serde_json = "1.0.51"
-toml = "0.5.6"
-human-panic = "1.0.3"
-serde_derive = "1.0.106"
-anyhow = "1.0.28"
-env_logger = "0.7.1"
-log = "0.4.8"
+reqwest= { version = "0.11.3", features = ["blocking", "json"] }
+serde = { version = "1.0.126", features = ["derive"] }
+anyhow = "1.0.40"
+env_logger = "0.8.3"
+log = "0.4.14"
+directories-next = "2.0.0"
+tokio = { version = "1.6.0", features = ["time", "macros", "rt-multi-thread"] }
+serde_yaml = "0.8.17"
+cloudflare = "0.8.2"

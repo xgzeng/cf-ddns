@@ -1,39 +1,84 @@
-# CloudFlare DDNS update tool
+# Cloudflare DDNS service
 
-![](https://github.com/zbrox/cloudflare-ddns/workflows/Build/badge.svg)
+This is a simple daemon that runs in the background and checks for your public
+IP regularily. If it changes, the service sets the corresponding DNS record. The
+service supports both IPv4 and IPv6 addresses.
 
-This is a simple CLI you can use to continuously update an A DNS record for a domain using CloudFlare's free DDNS service.
+## Installation
 
-## Options
+Use the package manager [cargo](https://doc.rust-lang.org/cargo/) to install
+Cloudflare DDNS service.
 
-```
-    -t, --token <api-token>     The API token you need to generate in your Cloudflare profile
-    -c, --cache <cache>      Cache file for previously reported IP address (if skipped the IP will be reported on every
-                             execution)
-    -f, --config <config>    Your TOML config file containing all the required options (email, auth_key, zone, domain)
-                             which you can use instead of passing the arguments to the command line
-    -d, --domain <domain>    The domain for which you want to report the current IP address
-    -z, --zone <zone>        The zone in which your domain is (usually that is your base domain name)
+```bash
+cargo install cloudflare-ddns-service
 ```
 
+## Usage
 ### Config
 
-You Can pass a path to a configuration file (`-f` or `--config`) instead of each option as a command line argument. The configuration should be a [TOML](https://github.com/toml-lang/toml) file and hold the same options. Here's a sample:
+The services adheres to the XDG spec for locating the config file. In most
+cases, that means the config file is located at
+`~/.config/cloudflare-ddns-service/config.yaml`.
 
-```TOML
-api_token = "secretkey"
-domain = "example.example.com"
-zone = "example.com"
+As you can see from the path, the configuration should be a yaml file. A sample
+could look like this:
+
+```yaml
+api_token: "secretkey"
+zone: "example.com"
+domain: "example.example.com"
+ipv4: true    # defaults to true
+ipv6: true    # defaults to false
+interval: 15  # seconds, defaults to 60
 ```
 
-## Cloudflare Setup
+As you can see, we have a token here. This token needs to have access to at
+least:
+ - reading you account zones (for getting the zone ID from the zone name)
+ - reading and writing to the DNS zone (for first fetching the records and then
+   modifying them.
 
-You need to do some preparatory work in Cloudflare. Firstly this assumes you're using Cloudflare already to manage the DNS records for your domain.
+Aside of the token, you also have to prepare some DNS records before running
+this: If you enabled IPv4 support, there needs to be a DNS `A` record for the
+configured domain already, and if you enabled IPv6 support, you need a DNS
+`AAAA` record set on the configured domain. The service will not create new
+records, it just modifies existing records.
 
-### Initial DNS setup
+### Running
 
-You need to add a type `A` DNS record for your domain. The `Name` field you should fill in with the name of the subdomain. If you don't want to use a subdomain just type `@` then the base domain will be used. Then change the `Proxy status` field to be not `Proxied` but `DNS only`. This will allow you to input `0.0.0.0` in the `IPv4 Address` field. Then click the save button. You might need to wait sometime before the DNS record propagates.
+To run the service, just call the binary. You can optionally set the `RUST_LOG`
+env var to configure the log level:
 
-### API token
+```bash
+RUST_LOG=info cloudflare-ddns-service
+```
 
-We need to authenticate ourselves in front of the Cloudflare API. To do so we need to an API token to pass along with every request. You can generate an API token to use specifically with this application on Cloudflare in `My profile > API Tokens > Create Token`.
+## Contributing
+Pull requests are welcome. For major changes, please open an issue first to discuss what you would like to change.
+
+Please make sure to update tests as appropriate.
+
+## License
+
+cloudflare-ddns-service is cooperative non-violent software: you can use,
+redistribute, and/or modify it under the terms of the CNPLv6+ as found in the
+LICENSE file in the source code root directory or at
+<https://git.pixie.town/thufie/CNPL>.
+
+cloudflare-ddns-service comes with ABSOLUTELY NO WARRANTY, to the extent
+permitted by applicable law.  See `LICENSE` for details.
+
+[CNPLv6+](https://thufie.lain.haus/NPL.html)
+
+## Attribution
+
+This work is derived from
+[cloudflare-ddns](https://github.com/zbrox/cloudflare-ddns), a commandline
+utility fullfilling the same purpose. It's written by Rostislav Raykov
+<z@zbrox.org> and available under the MIT license at the link above.
+
+This fork has been made to severly refactor the utility (have it running
+constantly instead of running it in cron, for supporting IPv6, and for not using
+a homegrown Cloudflare API client but the library provided by Cloudflare
+themselves). Due to the nature of these changes, I have not sent a PR, as it
+makes this basically a separate tool and nearly all code has been rewritten.
