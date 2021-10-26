@@ -46,8 +46,9 @@ async fn main() -> Result<()> {
 
     let dirs = ProjectDirs::from("re", "jcg", "cloudflare-ddns-service")
         .context("Couldn't find project directories! Is $HOME set?")?;
-    let config_string = read_to_string(dirs.config_dir().join("config.yaml"))
-        .context("couldn't read config file!")?;
+    let path = dirs.config_dir().join("config.yaml");
+    let config_string = read_to_string(&path).context(format!("couldn't read config file! {}", path.to_str().unwrap()))?;
+
     let config: Config = from_str(&config_string)?;
     let cache_path = dirs.cache_dir().join("cache.yaml");
     let mut cache = match read_to_string(&cache_path) {

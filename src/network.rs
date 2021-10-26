@@ -61,10 +61,22 @@ pub async fn get_zone(domain: String, cf_client: &mut CfClient) -> Result<String
         .clone())
 }
 
+fn dns_record_type(r: &DnsContent) -> &'static str {
+    match r {
+        DnsContent::A {..} => "A",
+        DnsContent::AAAA {..} => "AAAA",
+        DnsContent::CNAME {..} => "CNAME",
+        DnsContent::NS {..} => "NS",
+        DnsContent::MX {..} => "MX",
+        DnsContent::TXT {..} => "TXT",
+        DnsContent::SRV {..} => "SRV",
+    }
+}
+
 pub async fn get_record(
     zone_identifier: &str,
     domain: String,
-    r#type: DnsContent,
+    r: DnsContent,
     cf_client: &mut CfClient,
 ) -> Result<String> {
     Ok(cf_client
@@ -85,13 +97,13 @@ pub async fn get_record(
         .result
         .iter()
         .find(|record| {
-            if std::mem::discriminant(&record.content) == std::mem::discriminant(&r#type) {
+            if std::mem::discriminant(&record.content) == std::mem::discriminant(&r) {
                 true
             } else {
                 false
             }
         })
-        .context("No matching record found")?
+        .context(format!("No matching {} record found", dns_record_type(&r)))?
         .id
         .clone())
 }
