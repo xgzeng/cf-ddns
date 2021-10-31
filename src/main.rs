@@ -1,10 +1,12 @@
 mod network;
 
 use anyhow::{Context, Result};
+use clap;
 use directories_next::ProjectDirs;
 use network::{get_current_ipv4, get_current_ipv6, get_record, get_zone, update_record};
 use serde::{Deserialize, Serialize};
-use serde_yaml::{from_str, to_writer};
+use serde_yaml;
+
 use std::{
     fs::{create_dir_all, read_to_string, File},
     net::{Ipv4Addr, Ipv6Addr},
@@ -44,15 +46,29 @@ struct Cache {
 async fn main() -> Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
+    let args = clap::App::new("cloudflare-ddns-service")
+        .arg(clap::Arg::new("config").short('c').takes_value(true))
+        .get_matches();
+
+    // project dirs
     let dirs = ProjectDirs::from("re", "jcg", "cloudflare-ddns-service")
         .context("Couldn't find project directories! Is $HOME set?")?;
-    let path = dirs.config_dir().join("config.yaml");
-    let config_string = read_to_string(&path).context(format!("couldn't read config file! {}", path.to_str().unwrap()))?;
+    
+    // command line argument
+    let config_file = match args.value_of("config") {
+        Some(config_file) => std::path::PathBuf::from(config_file),
+        None => dirs.config_dir().join("config.yaml"),
+    };
 
-    let config: Config = from_str(&config_string)?;
+    let config_string = read_to_string(&config_file).context(format!(
+        "couldn't read config file! {}",
+        config_file.to_str().unwrap()
+    ))?;
+
+    let config: Config = serde_yaml::from_str(&config_string)?;
     let cache_path = dirs.cache_dir().join("cache.yaml");
     let mut cache = match read_to_string(&cache_path) {
-        Ok(cache) => from_str(&cache)?,
+        Ok(cache) => serde_yaml::from_str(&cache)?,
         Err(_) => {
             create_dir_all(dirs.cache_dir())?;
             Cache::default()
@@ -147,7 +163,7 @@ async fn update(
 }
 
 fn write_cache(cache: &mut Cache, cache_path: &PathBuf) -> Result<()> {
-    to_writer(File::create(cache_path)?, cache)?;
+    serde_yaml::to_writer(File::create(cache_path)?, cache)?;
     Ok(())
 }
 

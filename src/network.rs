@@ -43,7 +43,7 @@ pub async fn get_current_ipv6(client: &mut ReqwClient) -> Result<Ipv6Addr> {
 }
 
 pub async fn get_zone(domain: String, cf_client: &mut CfClient) -> Result<String> {
-    Ok(cf_client
+    let zones = cf_client
         .request_handle(&ListZones {
             params: ListZonesParams {
                 name: Some(domain),
@@ -55,21 +55,20 @@ pub async fn get_zone(domain: String, cf_client: &mut CfClient) -> Result<String
                 search_match: None,
             },
         })
-        .await?
-        .result[0]
-        .id
-        .clone())
+        .await?;
+    // TODO: panic if result is empty
+    Ok(zones.result[0].id.clone())
 }
 
 fn dns_record_type(r: &DnsContent) -> &'static str {
     match r {
-        DnsContent::A {..} => "A",
-        DnsContent::AAAA {..} => "AAAA",
-        DnsContent::CNAME {..} => "CNAME",
-        DnsContent::NS {..} => "NS",
-        DnsContent::MX {..} => "MX",
-        DnsContent::TXT {..} => "TXT",
-        DnsContent::SRV {..} => "SRV",
+        DnsContent::A { .. } => "A",
+        DnsContent::AAAA { .. } => "AAAA",
+        DnsContent::CNAME { .. } => "CNAME",
+        DnsContent::NS { .. } => "NS",
+        DnsContent::MX { .. } => "MX",
+        DnsContent::TXT { .. } => "TXT",
+        DnsContent::SRV { .. } => "SRV",
     }
 }
 
