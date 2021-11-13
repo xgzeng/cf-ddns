@@ -1,0 +1,5 @@
+[Unit]
+Description=Cloudflare DDNS Service
+
+[Service]
+ExecStart=/usr/bin/cloudflare-ddns-service -c /etc/cloudflare-ddns.yaml

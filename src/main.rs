@@ -1,10 +1,14 @@
+#![feature(ip)]
+
 mod network;
 
 use anyhow::{Context, Result};
-use clap;
 use directories_next::ProjectDirs;
-use network::{get_current_ipv4, get_current_ipv6, get_record, get_zone, update_record};
+use network::{get_current_ipv4, get_current_ipv6, get_current_ipv6_local,
+    get_record, get_zone, update_record};
+
 use serde::{Deserialize, Serialize};
+use clap;
 use serde_yaml;
 
 use std::{
@@ -86,7 +90,7 @@ async fn main() -> Result<()> {
     )?;
     let zone = get_zone(config.zone.clone(), &mut cf_client).await?;
     loop {
-        update(
+        let update_result = update(
             &config,
             &mut cache,
             &cache_path,
@@ -94,7 +98,13 @@ async fn main() -> Result<()> {
             &mut reqw_client,
             &mut cf_client,
         )
-        .await?;
+        .await;
+
+        match update_result {
+            Ok(_) => (),
+            Err(err) => log::warn!("update failed: {}", err),
+        }
+
         interval.tick().await;
     }
 }
@@ -133,15 +143,23 @@ async fn update(
             }
         }
     }
+
     if config.ipv6 {
-        let current = get_current_ipv6(reqw_client).await?;
+        // let current = get_current_ipv6(reqw_client).await?;
+        let local_ips = get_current_ipv6_local();
+        if local_ips.is_empty() {
+            let err = std::io::Error::new(std::io::ErrorKind::Other, "no ipv6 address");
+            return Err(anyhow::Error::new(err));
+        }
+
+        let current = local_ips[0];
         log::debug!("fetched current IP: {}", current.to_string());
         match cache.v6 {
             Some(old) if old == current => {
                 log::debug!("ipv6 unchanged, continuing...")
             }
             _ => {
-                log::debug!("ipv4 changed, setting record");
+                log::debug!("ipv6 changed, setting record");
                 let rid = get_record(zone, config.domain.clone(), network::AAAA_RECORD, cf_client)
                     .await
                     .context("couldn't find record!")?;
@@ -154,6 +172,7 @@ async fn update(
                     cf_client,
                 )
                 .await?;
+                log::info!("ipv6 updated to {}", current);
                 cache.v6 = Some(current);
                 write_cache(cache, cache_path)?;
             }

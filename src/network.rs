@@ -1,3 +1,4 @@
+use ipnetwork::IpNetwork;
 use std::net::{Ipv4Addr, Ipv6Addr};
 
 use anyhow::{Context, Result};
@@ -12,6 +13,8 @@ use cloudflare::{
     framework::async_api::Client as CfClient,
 };
 use reqwest::Client as ReqwClient;
+
+use pnet;
 
 pub const A_RECORD: DnsContent = DnsContent::A {
     content: Ipv4Addr::UNSPECIFIED,
@@ -40,6 +43,19 @@ pub async fn get_current_ipv6(client: &mut ReqwClient) -> Result<Ipv6Addr> {
         .await?
         .trim()
         .parse()?)
+}
+
+pub fn get_current_ipv6_local() -> Vec<Ipv6Addr> {
+    pnet::datalink::interfaces()
+        .into_iter()
+        .flat_map(|net_if| net_if.ips)
+        .filter_map(|ip| match ip {
+            IpNetwork::V6(addr_v6) if addr_v6.ip().is_unicast_global() => {
+                Some(addr_v6.ip().clone())
+            }
+            _ => None,
+        })
+        .collect()
 }
 
 pub async fn get_zone(domain: String, cf_client: &mut CfClient) -> Result<String> {
