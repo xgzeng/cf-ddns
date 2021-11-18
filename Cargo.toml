@@ -1,5 +1,5 @@
 [package]
-name = "cloudflare-ddns-service"
+name = "cloudflare-ddns"
 version = "0.4.0"
 authors = ["Jan Christian Grünhage <jan.christian@gruenhage.xyz>"]
 edition = "2018"

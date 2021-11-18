@@ -1,0 +1,5 @@
+api_token: "secretkey"
+zone: "example.com"
+domain: "example.example.com"
+ipv4: true    # defaults to true
+ipv6: true    # defaults to false

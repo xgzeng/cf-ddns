@@ -2,4 +2,4 @@
 Description=Cloudflare DDNS Service
 
 [Service]
-ExecStart=/usr/bin/cloudflare-ddns-service -c /etc/cloudflare-ddns.yaml
+ExecStart=/usr/bin/cloudflare-ddns -c /etc/cloudflare-ddns.yaml
