@@ -3,3 +3,6 @@ Description=Cloudflare DDNS Service
 
 [Service]
 ExecStart=/usr/bin/cloudflare-ddns -c /etc/cloudflare-ddns.yaml
+
+[Install]
+WantedBy=multi-user.target
