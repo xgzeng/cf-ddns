@@ -4,7 +4,7 @@ mod network;
 
 use anyhow::{Context, Result};
 use directories_next::ProjectDirs;
-use network::{get_current_ipv4, get_current_ipv6, get_current_ipv6_local,
+use network::{get_current_ipv4, get_current_ipv6_local,
     get_record, get_zone, update_record};
 
 use serde::{Deserialize, Serialize};
@@ -88,13 +88,12 @@ async fn main() -> Result<()> {
         HttpApiClientConfig::default(),
         Environment::Production,
     )?;
-    let zone = get_zone(config.zone.clone(), &mut cf_client).await?;
+
     loop {
         let update_result = update(
             &config,
             &mut cache,
             &cache_path,
-            &zone,
             &mut reqw_client,
             &mut cf_client,
         )
@@ -113,10 +112,11 @@ async fn update(
     config: &Config,
     cache: &mut Cache,
     cache_path: &PathBuf,
-    zone: &str,
     reqw_client: &mut ReqwClient,
     cf_client: &mut CfClient,
 ) -> Result<()> {
+    let zone = get_zone(config.zone.clone(), cf_client).await?;
+
     if config.ipv4 {
         let current = get_current_ipv4(reqw_client).await?;
         log::debug!("fetched current IP: {}", current.to_string());
@@ -126,12 +126,12 @@ async fn update(
             }
             _ => {
                 log::debug!("ipv4 changed, setting record");
-                let rid = get_record(zone, config.domain.clone(), network::A_RECORD, cf_client)
+                let rid = get_record(&zone, config.domain.clone(), network::A_RECORD, cf_client)
                     .await
                     .context("couldn't find record!")?;
                 log::debug!("got record ID {}", rid);
                 update_record(
-                    zone,
+                    &zone,
                     &rid,
                     &config.domain,
                     DnsContent::A { content: current },
@@ -160,12 +160,12 @@ async fn update(
             }
             _ => {
                 log::debug!("ipv6 changed, setting record");
-                let rid = get_record(zone, config.domain.clone(), network::AAAA_RECORD, cf_client)
+                let rid = get_record(&zone, config.domain.clone(), network::AAAA_RECORD, cf_client)
                     .await
                     .context("couldn't find record!")?;
                 log::debug!("got record ID {}", rid);
                 update_record(
-                    zone,
+                    &zone,
                     &rid,
                     &config.domain,
                     DnsContent::AAAA { content: current },
