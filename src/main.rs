@@ -8,12 +8,7 @@ use network::{get_current_ipv4, get_current_ipv6_local, get_record, get_zone, up
 use clap;
 use serde_yaml;
 
-use std::{
-    fs::read_to_string,
-    net::{IpAddr, Ipv4Addr, Ipv6Addr},
-    time::Duration,
-};
-use tokio::time::interval;
+use std::{fs::File, net::IpAddr, time::Duration};
 
 use cloudflare::{
     endpoints::dns::DnsContent,
@@ -30,7 +25,7 @@ struct Config {
     domain: String,
     #[serde(default = "yes")]
     ipv4: bool,
-    #[serde(default = "no")]
+    #[serde(default = "yes")]
     ipv6: bool,
     #[serde(default = "default_duration")]
     interval: u64,
@@ -40,8 +35,7 @@ struct Zone {
     zone_name: String,
     domain_name: String,
     zone_id: Option<String>, // cloudflare api zone id
-    v4: Option<Ipv4Addr>,
-    v6: Option<Ipv6Addr>,
+    local_ips: Vec<IpAddr>,
 }
 
 #[tokio::main]
@@ -60,19 +54,16 @@ async fn main() -> Result<()> {
     // command line argument
     let config_file = args.value_of("config").unwrap();
 
-    let config_string = read_to_string(&config_file).context("couldn't read config file")?;
+    // read config file
+    let config: Config = serde_yaml::from_reader(File::open(config_file)?)?;
 
-    let config: Config = serde_yaml::from_str(&config_string)?;
     let mut zone = Zone {
         zone_name: config.zone.clone(),
         domain_name: config.domain.clone(),
         zone_id: None,
-        v4: None,
-        v6: None,
+        local_ips: vec![],
     };
 
-    let mut interval = interval(Duration::new(config.interval, 0));
-    let mut reqw_client = ReqwClient::new();
     let mut cf_client = CfClient::new(
         Credentials::UserAuthToken {
             token: config.api_token.clone(),
@@ -82,133 +73,116 @@ async fn main() -> Result<()> {
     )?;
 
     loop {
-        if zone.zone_id.is_none() {
-            match get_zone(zone.zone_name.clone(), &mut cf_client).await {
-                Ok(id) => {
-                    log::info!("got zone id for {}: {}", zone.zone_name, id);
-                    zone.zone_id = Some(id);
-                }
-                Err(err) => {
-                    log::warn!("got zone id error: {}", err);
-                    interval.tick().await;
-                    continue;
-                }
-            }
+        // loop once
+        log::info!("update_once");
+        match update_once(&config, &mut zone, &mut cf_client).await {
+            Ok(_) => (),
+            Err(err) => log::warn!("update failed: {}", err),
         }
 
-        if config.ipv4 {
-            let update_result = update_ipv4(&mut zone, &mut reqw_client, &mut cf_client).await;
-            match update_result {
-                Ok(_) => (),
-                Err(err) => log::warn!("update failed: {}", err),
-            }
-        }
-
-        if config.ipv6 {
-            let update_result = update_ipv6(&mut zone, &mut reqw_client, &mut cf_client).await;
-            match update_result {
-                Ok(_) => (),
-                Err(err) => log::warn!("update failed: {}", err),
-            }
-        }
-
-        interval.tick().await;
+        tokio::time::sleep(Duration::from_secs(config.interval)).await;
     }
+}
+
+async fn update_once(config: &Config, zone: &mut Zone, cf_client: &mut CfClient) -> Result<()> {
+    let mut reqw_client = ReqwClient::new();
+
+    // query local ips
+    let addrs = query_local_ip(&mut reqw_client, config.ipv4, config.ipv6).await?;
+    log::debug!("local ips: {:?}", addrs);
+
+    if addrs == zone.local_ips {
+        // ip address not changed
+        log::info!("ip address no change");
+        return Ok(());
+    }
+
+    if zone.zone_id.is_none() {
+        let zid = get_zone(zone.zone_name.clone(), cf_client).await?;
+        log::debug!("got zone id for {}: {}", zone.zone_name, zid);
+        zone.zone_id = Some(zid)
+    }
+
+    for addr in &addrs {
+        update_ip(
+            cf_client,
+            zone.zone_id.as_ref().unwrap(),
+            &zone.domain_name,
+            addr,
+        )
+        .await?
+    }
+
+    zone.local_ips = addrs;
+    Ok(())
 }
 
 async fn update_ip(
     cf_client: &mut CfClient,
     zone_id: &str,
     domain: &str,
-    ip: IpAddr,
+    ip: &IpAddr,
 ) -> Result<()> {
+    log::info!("update_ip: {} {}", domain, ip);
+
     match ip {
         IpAddr::V4(ip_v4) => {
             let record_id = get_record(zone_id, domain, network::A_RECORD, cf_client)
                 .await
-                .context("couldn't find record!")?;
-            log::info!("got record id {}", record_id);
+                .context("couldn't find A record!")?;
+            log::debug!("got A record id {}", record_id);
 
             update_record(
                 zone_id,
                 &record_id,
                 domain,
-                DnsContent::A { content: ip_v4 },
+                DnsContent::A {
+                    content: ip_v4.clone(),
+                },
                 cf_client,
             )
             .await?;
+
+            log::info!("update A record to {}", ip_v4);
         }
         IpAddr::V6(ip_v6) => {
             let record_id = get_record(zone_id, domain, network::AAAA_RECORD, cf_client)
                 .await
-                .context("couldn't find record!")?;
-            log::info!("got record id {}", record_id);
+                .context("couldn't find AAAA record!")?;
+            log::debug!("got AAAA record id {}", record_id);
             update_record(
                 zone_id,
                 &record_id,
                 domain,
-                DnsContent::AAAA { content: ip_v6 },
+                DnsContent::AAAA {
+                    content: ip_v6.clone(),
+                },
                 cf_client,
             )
             .await?;
+            log::debug!("update AAAA record to {}", ip_v6);
         }
     }
     Ok(())
 }
 
-async fn update_ipv4(
-    zone: &mut Zone,
-    reqw_client: &mut ReqwClient,
-    cf_client: &mut CfClient,
-) -> Result<()> {
-    let current = get_current_ipv4(reqw_client).await?;
-    log::info!("fetched current IP: {}", current.to_string());
+async fn query_local_ip(reqw_client: &mut ReqwClient, v4: bool, v6: bool) -> Result<Vec<IpAddr>> {
+    let mut addrs: Vec<IpAddr> = vec![];
 
-    if let Some(old) = zone.v4 {
-        if old == current {
-            log::debug!("ipv4 unchanged, continuing...");
-            return Ok(());
+    if v4 {
+        let addr = get_current_ipv4(reqw_client).await?;
+        log::info!("fetched current IP: {}", addr.to_string());
+        addrs.push(IpAddr::V4(addr))
+    }
+
+    if v6 {
+        let addrs_v6 = get_current_ipv6_local();
+        if !addrs_v6.is_empty() {
+            addrs.push(IpAddr::V6(addrs_v6[0]))
         }
     }
 
-    let zone_id = zone.zone_id.as_ref().unwrap();
-    log::info!("ipv4 changed, setting record");
-    update_ip(cf_client, zone_id, &zone.domain_name, IpAddr::V4(current)).await?;
-    zone.v4 = Some(current);
-
-    Ok(())
-}
-
-async fn update_ipv6(
-    zone: &mut Zone,
-    reqw_client: &mut ReqwClient,
-    cf_client: &mut CfClient,
-) -> Result<()> {
-    let zone_id = zone.zone_id.as_ref().unwrap();
-
-    // let current = get_current_ipv6(reqw_client).await?;
-    let local_ips = get_current_ipv6_local();
-    if local_ips.is_empty() {
-        let err = std::io::Error::new(std::io::ErrorKind::Other, "no ipv6 address");
-        return Err(anyhow::Error::new(err));
-    }
-
-    let current = local_ips[0];
-    log::info!("fetched current IP: {}", current.to_string());
-
-    if let Some(old) = zone.v6 {
-        if old == current {
-            log::debug!("ipv6 unchanged, continuing...");
-            return Ok(());
-        }
-    }
-
-    log::debug!("ipv6 changed, setting record");
-    update_ip(cf_client, zone_id, &zone.domain_name, IpAddr::V6(current)).await?;
-    log::info!("ipv6 updated to {}", current);
-    zone.v6 = Some(current);
-
-    Ok(())
+    Ok(addrs)
 }
 
 fn yes() -> bool {
