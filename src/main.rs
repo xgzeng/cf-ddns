@@ -4,11 +4,10 @@ mod network;
 
 use anyhow::{Context, Result};
 use directories_next::ProjectDirs;
-use network::{get_current_ipv4, get_current_ipv6_local,
-    get_record, get_zone, update_record};
+use network::{get_current_ipv4, get_current_ipv6_local, get_record, get_zone, update_record};
 
-use serde::{Deserialize, Serialize};
 use clap;
+use serde::{Deserialize, Serialize};
 use serde_yaml;
 
 use std::{
@@ -50,14 +49,14 @@ struct Cache {
 async fn main() -> Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
-    let args = clap::App::new("cloudflare-ddns-service")
+    let args = clap::Command::new("cloudflare-ddns-service")
         .arg(clap::Arg::new("config").short('c').takes_value(true))
         .get_matches();
 
     // project dirs
     let dirs = ProjectDirs::from("re", "jcg", "cloudflare-ddns-service")
         .context("Couldn't find project directories! Is $HOME set?")?;
-    
+
     // command line argument
     let config_file = match args.value_of("config") {
         Some(config_file) => std::path::PathBuf::from(config_file),
@@ -160,9 +159,14 @@ async fn update(
             }
             _ => {
                 log::debug!("ipv6 changed, setting record");
-                let rid = get_record(&zone, config.domain.clone(), network::AAAA_RECORD, cf_client)
-                    .await
-                    .context("couldn't find record!")?;
+                let rid = get_record(
+                    &zone,
+                    config.domain.clone(),
+                    network::AAAA_RECORD,
+                    cf_client,
+                )
+                .await
+                .context("couldn't find record!")?;
                 log::debug!("got record ID {}", rid);
                 update_record(
                     &zone,
