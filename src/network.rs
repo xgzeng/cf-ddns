@@ -90,7 +90,7 @@ fn dns_record_type(r: &DnsContent) -> &'static str {
 
 pub async fn get_record(
     zone_identifier: &str,
-    domain: String,
+    domain: &str,
     r: DnsContent,
     cf_client: &mut CfClient,
 ) -> Result<String> {
@@ -99,7 +99,7 @@ pub async fn get_record(
             zone_identifier,
             params: ListDnsRecordsParams {
                 record_type: None,
-                name: Some(domain),
+                name: Some(domain.to_string()),
                 page: None,
                 per_page: None,
                 order: None,

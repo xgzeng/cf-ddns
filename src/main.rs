@@ -3,17 +3,14 @@
 mod network;
 
 use anyhow::{Context, Result};
-use directories_next::ProjectDirs;
 use network::{get_current_ipv4, get_current_ipv6_local, get_record, get_zone, update_record};
 
 use clap;
-use serde::{Deserialize, Serialize};
 use serde_yaml;
 
 use std::{
-    fs::{create_dir_all, read_to_string, File},
-    net::{Ipv4Addr, Ipv6Addr},
-    path::PathBuf,
+    fs::read_to_string,
+    net::{IpAddr, Ipv4Addr, Ipv6Addr},
     time::Duration,
 };
 use tokio::time::interval;
@@ -26,7 +23,7 @@ use cloudflare::{
 };
 use reqwest::Client as ReqwClient;
 
-#[derive(Serialize, Deserialize)]
+#[derive(serde::Serialize, serde::Deserialize)]
 struct Config {
     api_token: String,
     zone: String,
@@ -39,8 +36,10 @@ struct Config {
     interval: u64,
 }
 
-#[derive(Serialize, Deserialize, Default)]
-struct Cache {
+struct Zone {
+    zone_name: String,
+    domain_name: String,
+    zone_id: Option<String>, // cloudflare api zone id
     v4: Option<Ipv4Addr>,
     v6: Option<Ipv6Addr>,
 }
@@ -49,33 +48,27 @@ struct Cache {
 async fn main() -> Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
-    let args = clap::Command::new("cloudflare-ddns-service")
-        .arg(clap::Arg::new("config").short('c').takes_value(true))
+    let args = clap::Command::new("cloudflare-ddns")
+        .arg(
+            clap::Arg::new("config")
+                .short('c')
+                .takes_value(true)
+                .default_value("/etc/cloudflare-ddns.yaml"),
+        )
         .get_matches();
 
-    // project dirs
-    let dirs = ProjectDirs::from("re", "jcg", "cloudflare-ddns-service")
-        .context("Couldn't find project directories! Is $HOME set?")?;
-
     // command line argument
-    let config_file = match args.value_of("config") {
-        Some(config_file) => std::path::PathBuf::from(config_file),
-        None => dirs.config_dir().join("config.yaml"),
-    };
+    let config_file = args.value_of("config").unwrap();
 
-    let config_string = read_to_string(&config_file).context(format!(
-        "couldn't read config file! {}",
-        config_file.to_str().unwrap()
-    ))?;
+    let config_string = read_to_string(&config_file).context("couldn't read config file")?;
 
     let config: Config = serde_yaml::from_str(&config_string)?;
-    let cache_path = dirs.cache_dir().join("cache.yaml");
-    let mut cache = match read_to_string(&cache_path) {
-        Ok(cache) => serde_yaml::from_str(&cache)?,
-        Err(_) => {
-            create_dir_all(dirs.cache_dir())?;
-            Cache::default()
-        }
+    let mut zone = Zone {
+        zone_name: config.zone.clone(),
+        domain_name: config.domain.clone(),
+        zone_id: None,
+        v4: None,
+        v6: None,
     };
 
     let mut interval = interval(Duration::new(config.interval, 0));
@@ -89,104 +82,132 @@ async fn main() -> Result<()> {
     )?;
 
     loop {
-        let update_result = update(
-            &config,
-            &mut cache,
-            &cache_path,
-            &mut reqw_client,
-            &mut cf_client,
-        )
-        .await;
+        if zone.zone_id.is_none() {
+            match get_zone(zone.zone_name.clone(), &mut cf_client).await {
+                Ok(id) => {
+                    log::info!("got zone id for {}: {}", zone.zone_name, id);
+                    zone.zone_id = Some(id);
+                }
+                Err(err) => {
+                    log::warn!("got zone id error: {}", err);
+                    interval.tick().await;
+                    continue;
+                }
+            }
+        }
 
-        match update_result {
-            Ok(_) => (),
-            Err(err) => log::warn!("update failed: {}", err),
+        if config.ipv4 {
+            let update_result = update_ipv4(&mut zone, &mut reqw_client, &mut cf_client).await;
+            match update_result {
+                Ok(_) => (),
+                Err(err) => log::warn!("update failed: {}", err),
+            }
+        }
+
+        if config.ipv6 {
+            let update_result = update_ipv6(&mut zone, &mut reqw_client, &mut cf_client).await;
+            match update_result {
+                Ok(_) => (),
+                Err(err) => log::warn!("update failed: {}", err),
+            }
         }
 
         interval.tick().await;
     }
 }
 
-async fn update(
-    config: &Config,
-    cache: &mut Cache,
-    cache_path: &PathBuf,
-    reqw_client: &mut ReqwClient,
+async fn update_ip(
     cf_client: &mut CfClient,
+    zone_id: &str,
+    domain: &str,
+    ip: IpAddr,
 ) -> Result<()> {
-    let zone = get_zone(config.zone.clone(), cf_client).await?;
-
-    if config.ipv4 {
-        let current = get_current_ipv4(reqw_client).await?;
-        log::debug!("fetched current IP: {}", current.to_string());
-        match cache.v4 {
-            Some(old) if old == current => {
-                log::debug!("ipv4 unchanged, continuing...");
-            }
-            _ => {
-                log::debug!("ipv4 changed, setting record");
-                let rid = get_record(&zone, config.domain.clone(), network::A_RECORD, cf_client)
-                    .await
-                    .context("couldn't find record!")?;
-                log::debug!("got record ID {}", rid);
-                update_record(
-                    &zone,
-                    &rid,
-                    &config.domain,
-                    DnsContent::A { content: current },
-                    cf_client,
-                )
-                .await?;
-                cache.v4 = Some(current);
-                write_cache(cache, cache_path)?;
-            }
-        }
-    }
-
-    if config.ipv6 {
-        // let current = get_current_ipv6(reqw_client).await?;
-        let local_ips = get_current_ipv6_local();
-        if local_ips.is_empty() {
-            let err = std::io::Error::new(std::io::ErrorKind::Other, "no ipv6 address");
-            return Err(anyhow::Error::new(err));
-        }
-
-        let current = local_ips[0];
-        log::debug!("fetched current IP: {}", current.to_string());
-        match cache.v6 {
-            Some(old) if old == current => {
-                log::debug!("ipv6 unchanged, continuing...")
-            }
-            _ => {
-                log::debug!("ipv6 changed, setting record");
-                let rid = get_record(
-                    &zone,
-                    config.domain.clone(),
-                    network::AAAA_RECORD,
-                    cf_client,
-                )
+    match ip {
+        IpAddr::V4(ip_v4) => {
+            let record_id = get_record(zone_id, domain, network::A_RECORD, cf_client)
                 .await
                 .context("couldn't find record!")?;
-                log::debug!("got record ID {}", rid);
-                update_record(
-                    &zone,
-                    &rid,
-                    &config.domain,
-                    DnsContent::AAAA { content: current },
-                    cf_client,
-                )
-                .await?;
-                log::info!("ipv6 updated to {}", current);
-                cache.v6 = Some(current);
-                write_cache(cache, cache_path)?;
-            }
+            log::info!("got record id {}", record_id);
+
+            update_record(
+                zone_id,
+                &record_id,
+                domain,
+                DnsContent::A { content: ip_v4 },
+                cf_client,
+            )
+            .await?;
+        }
+        IpAddr::V6(ip_v6) => {
+            let record_id = get_record(zone_id, domain, network::AAAA_RECORD, cf_client)
+                .await
+                .context("couldn't find record!")?;
+            log::info!("got record id {}", record_id);
+            update_record(
+                zone_id,
+                &record_id,
+                domain,
+                DnsContent::AAAA { content: ip_v6 },
+                cf_client,
+            )
+            .await?;
         }
     }
     Ok(())
 }
 
-fn write_cache(cache: &mut Cache, cache_path: &PathBuf) -> Result<()> {
-    serde_yaml::to_writer(File::create(cache_path)?, cache)?;
+async fn update_ipv4(
+    zone: &mut Zone,
+    reqw_client: &mut ReqwClient,
+    cf_client: &mut CfClient,
+) -> Result<()> {
+    let current = get_current_ipv4(reqw_client).await?;
+    log::info!("fetched current IP: {}", current.to_string());
+
+    if let Some(old) = zone.v4 {
+        if old == current {
+            log::debug!("ipv4 unchanged, continuing...");
+            return Ok(());
+        }
+    }
+
+    let zone_id = zone.zone_id.as_ref().unwrap();
+    log::info!("ipv4 changed, setting record");
+    update_ip(cf_client, zone_id, &zone.domain_name, IpAddr::V4(current)).await?;
+    zone.v4 = Some(current);
+
+    Ok(())
+}
+
+async fn update_ipv6(
+    zone: &mut Zone,
+    reqw_client: &mut ReqwClient,
+    cf_client: &mut CfClient,
+) -> Result<()> {
+    let zone_id = zone.zone_id.as_ref().unwrap();
+
+    // let current = get_current_ipv6(reqw_client).await?;
+    let local_ips = get_current_ipv6_local();
+    if local_ips.is_empty() {
+        let err = std::io::Error::new(std::io::ErrorKind::Other, "no ipv6 address");
+        return Err(anyhow::Error::new(err));
+    }
+
+    let current = local_ips[0];
+    log::info!("fetched current IP: {}", current.to_string());
+
+    if let Some(old) = zone.v6 {
+        if old == current {
+            log::debug!("ipv6 unchanged, continuing...");
+            return Ok(());
+        }
+    }
+
+    log::debug!("ipv6 changed, setting record");
+    update_ip(cf_client, zone_id, &zone.domain_name, IpAddr::V6(current)).await?;
+    log::info!("ipv6 updated to {}", current);
+    zone.v6 = Some(current);
+
     Ok(())
 }
 
