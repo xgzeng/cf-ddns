@@ -14,7 +14,7 @@ use cloudflare::{
 };
 use reqwest::Client as ReqwClient;
 
-use pnet;
+use pnet_datalink;
 
 pub const A_RECORD: DnsContent = DnsContent::A {
     content: Ipv4Addr::UNSPECIFIED,
@@ -46,7 +46,7 @@ pub async fn get_current_ipv6(client: &mut ReqwClient) -> Result<Ipv6Addr> {
 }
 
 pub fn get_current_ipv6_local() -> Vec<Ipv6Addr> {
-    pnet::datalink::interfaces()
+    pnet_datalink::interfaces()
         .into_iter()
         .flat_map(|net_if| net_if.ips)
         .filter_map(|ip| match ip {
