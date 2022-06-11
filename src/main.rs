@@ -1,5 +1,3 @@
-#![feature(ip)]
-
 mod network;
 
 use anyhow::{Context, Result};
@@ -155,7 +153,7 @@ async fn update_ip(
                 &record_id,
                 domain,
                 DnsContent::AAAA {
-                    content: ip_v6.clone(),
+                    content: *ip_v6,
                 },
                 cf_client,
             )

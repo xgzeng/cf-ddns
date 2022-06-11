@@ -14,8 +14,6 @@ use cloudflare::{
 };
 use reqwest::Client as ReqwClient;
 
-use pnet_datalink;
-
 pub const A_RECORD: DnsContent = DnsContent::A {
     content: Ipv4Addr::UNSPECIFIED,
 };
@@ -45,12 +43,21 @@ pub async fn get_current_ipv6(client: &mut ReqwClient) -> Result<Ipv6Addr> {
         .parse()?)
 }
 
+fn is_unicast_global(addr : &Ipv6Addr) -> bool {
+    !addr.is_multicast() // is_unicast
+        && !addr.is_loopback()
+        && !((addr.segments()[0] & 0xffc0) == 0xfe80) // !is_unicast_link_local
+        && !((addr.segments()[0] & 0xfe00) == 0xfc00) // !is_unique_local
+        && !addr.is_unspecified()
+        && !((addr.segments()[0] == 0x2001) && (addr.segments()[1] == 0xdb8))
+}
+
 pub fn get_current_ipv6_local() -> Vec<Ipv6Addr> {
     pnet_datalink::interfaces()
         .into_iter()
         .flat_map(|net_if| net_if.ips)
         .filter_map(|ip| match ip {
-            IpNetwork::V6(addr_v6) if addr_v6.ip().is_unicast_global() => {
+            IpNetwork::V6(addr_v6) if is_unicast_global(&addr_v6.ip()) => {
                 Some(addr_v6.ip().clone())
             }
             _ => None,
