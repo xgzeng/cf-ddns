@@ -53,7 +53,8 @@ async fn main() -> Result<()> {
     let config_file = args.value_of("config").unwrap();
 
     // read config file
-    let config: Config = serde_yaml::from_reader(File::open(config_file)?)?;
+    let cfg_reader = File::open(config_file).context("open config file failed")?;
+    let config: Config = serde_yaml::from_reader(cfg_reader)?;
 
     let mut zone = Zone {
         zone_name: config.zone.clone(),
