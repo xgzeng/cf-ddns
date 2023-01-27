@@ -135,6 +135,7 @@ pub async fn update_record(
     identifier: &str,
     name: &str,
     content: DnsContent,
+    ttl: Option<u32>,
     cf_client: &mut CfClient,
 ) -> Result<()> {
     cf_client
@@ -142,7 +143,7 @@ pub async fn update_record(
             zone_identifier,
             identifier,
             params: UpdateDnsRecordParams {
-                ttl: None,
+                ttl: ttl,
                 proxied: Some(false),
                 name,
                 content,

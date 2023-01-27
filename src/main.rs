@@ -27,6 +27,19 @@ struct Config {
     ipv6: bool,
     #[serde(default = "default_duration")]
     interval: u64,
+    // #[serde(default = 10)]
+    ttl: Option<u32>,
+}
+
+impl Config {
+    fn load<P>(path: P) -> Result<Config>
+    where P : AsRef<std::path::Path> {
+        // read config file
+        let cfg_reader = File::open(path).context("open config file failed")?;
+        let config: Config = serde_yaml::from_reader(cfg_reader)?;
+
+        Ok(config)
+    }
 }
 
 struct Zone {
@@ -53,8 +66,7 @@ async fn main() -> Result<()> {
     let config_file = args.value_of("config").unwrap();
 
     // read config file
-    let cfg_reader = File::open(config_file).context("open config file failed")?;
-    let config: Config = serde_yaml::from_reader(cfg_reader)?;
+    let config = Config::load(config_file)?;
 
     let mut zone = Zone {
         zone_name: config.zone.clone(),
@@ -108,6 +120,7 @@ async fn update_once(config: &Config, zone: &mut Zone, cf_client: &mut CfClient)
             zone.zone_id.as_ref().unwrap(),
             &zone.domain_name,
             addr,
+            config.ttl,
         )
         .await?
     }
@@ -121,8 +134,9 @@ async fn update_ip(
     zone_id: &str,
     domain: &str,
     ip: &IpAddr,
+    ttl: Option<u32>,
 ) -> Result<()> {
-    log::info!("update_ip: {} {}", domain, ip);
+    log::info!("update_ip: {} {} ttl={:?}", domain, ip, ttl);
 
     match ip {
         IpAddr::V4(ip_v4) => {
@@ -138,6 +152,7 @@ async fn update_ip(
                 DnsContent::A {
                     content: ip_v4.clone(),
                 },
+                ttl,
                 cf_client,
             )
             .await?;
@@ -156,6 +171,7 @@ async fn update_ip(
                 DnsContent::AAAA {
                     content: *ip_v6,
                 },
+                ttl,
                 cf_client,
             )
             .await?;
@@ -186,10 +202,6 @@ async fn query_local_ip(reqw_client: &mut ReqwClient, v4: bool, v6: bool) -> Res
 
 fn yes() -> bool {
     true
-}
-
-fn no() -> bool {
-    false
 }
 
 fn default_duration() -> u64 {
