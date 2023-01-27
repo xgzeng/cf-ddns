@@ -1,0 +1,20 @@
+name: Package
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  cargo-deb:
+    runs-on: [ubuntu-latest, ubuntu-22.04]
+    steps:
+      - name: Install cargo-deb
+        run: cargo install cargo-deb
+      - name: Packaging
+        run: cargo deb
+      - uses: actions/upload-artifact@v3
+        with:
+          name: deb-package
+          path: target/debian/cloudflare-ddns_*_amd64.deb
