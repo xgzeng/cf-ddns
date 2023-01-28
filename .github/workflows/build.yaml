@@ -26,8 +26,13 @@ jobs:
       # - uses: actions/upload-artifact@v3
       #   with:
       #     path: target/debian/cloudflare-ddns_*.deb
+      # - name: Read Cargo.toml
+      #   id: read_version
+      #   uses: wowjeeez/rust-conf-read@v1.0.2
       - uses: djnicholson/release-action@v2.11
         with:
-          asset-name: 'cloudflare-ddns_0.4.0_amd64.deb'
+          release-name: 'Latest rolling build'
+          tag-name: 'latest-rolling'
+          asset-name: 'cloudflare-ddns_latest_amd64.deb'
           token: ${{ secrets.GITHUB_TOKEN }}
-          file: 'target/debian/cloudflare-ddns_0.4.0_amd64.deb'
+          file: 'target/debian/cloudflare-ddns_latest_amd64.deb'
