@@ -23,7 +23,11 @@ jobs:
         run: cargo install cargo-deb
       - name: Packaging
         run: cargo deb
-      - uses: actions/upload-artifact@v3
+      # - uses: actions/upload-artifact@v3
+      #   with:
+      #     path: target/debian/cloudflare-ddns_*.deb
+      - uses: djnicholson/release-action@v2.11
         with:
-          name: deb-package
-          path: target/debian/cloudflare-ddns_*_amd64.deb
+          asset-name: 'cloudflare-ddns_0.4.0_amd64.deb'
+          token: ${{ secrets.GITHUB_TOKEN }}
+          file: 'target/debian/cloudflare-ddns_0.4.0_amd64.deb'
