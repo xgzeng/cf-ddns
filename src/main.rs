@@ -33,7 +33,9 @@ struct Config {
 
 impl Config {
     fn load<P>(path: P) -> Result<Config>
-    where P : AsRef<std::path::Path> {
+    where
+        P: AsRef<std::path::Path>,
+    {
         // read config file
         let cfg_reader = File::open(path).context("open config file failed")?;
         let config: Config = serde_yaml::from_reader(cfg_reader)?;
@@ -57,13 +59,12 @@ async fn main() -> Result<()> {
         .arg(
             clap::Arg::new("config")
                 .short('c')
-                .takes_value(true)
                 .default_value("/etc/cloudflare-ddns.yaml"),
         )
         .get_matches();
 
     // command line argument
-    let config_file = args.value_of("config").unwrap();
+    let config_file = args.get_one::<String>("config").unwrap();
 
     // read config file
     let config = Config::load(config_file)?;
@@ -168,13 +169,12 @@ async fn update_ip(
                 zone_id,
                 &record_id,
                 domain,
-                DnsContent::AAAA {
-                    content: *ip_v6,
-                },
+                DnsContent::AAAA { content: *ip_v6 },
                 ttl,
                 cf_client,
             )
-            .await?;
+            .await
+            .context("update_record")?;
             log::debug!("update AAAA record to {}", ip_v6);
         }
     }
