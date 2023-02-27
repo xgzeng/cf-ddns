@@ -20,7 +20,7 @@ env_logger = "0.10.0"
 log = "0.4.11"
 tokio = { version = "1.6.0", features = ["macros"] }
 serde_yaml = "0.9.17"
-cloudflare = {git="https://github.com/cloudflare/cloudflare-rs", tag="v0.10.1"}
+cloudflare = {git="https://github.com/cloudflare/cloudflare-rs", branch="master"}
 clap = "4.1" # command line parse
 pnet_datalink = "0.33.0"
 ipnetwork = "0.20.0"

@@ -43,7 +43,7 @@ pub async fn get_current_ipv6(client: &mut ReqwClient) -> Result<Ipv6Addr> {
         .parse()?)
 }
 
-fn is_unicast_global(addr : &Ipv6Addr) -> bool {
+fn is_unicast_global(addr: &Ipv6Addr) -> bool {
     !addr.is_multicast() // is_unicast
         && !addr.is_loopback()
         && !((addr.segments()[0] & 0xffc0) == 0xfe80) // !is_unicast_link_local
@@ -66,21 +66,22 @@ pub fn get_current_ipv6_local() -> Vec<Ipv6Addr> {
 }
 
 pub async fn get_zone(domain: String, cf_client: &mut CfClient) -> Result<String> {
-    let zones = cf_client
-        .request_handle(&ListZones {
-            params: ListZonesParams {
-                name: Some(domain),
-                status: None,
-                page: None,
-                per_page: None,
-                order: None,
-                direction: None,
-                search_match: None,
-            },
-        })
-        .await?;
-    // TODO: panic if result is empty
-    Ok(zones.result[0].id.clone())
+    let list_zone_req = ListZones {
+        params: ListZonesParams {
+            name: Some(domain),
+            status: None,
+            page: None,
+            per_page: None,
+            order: None,
+            direction: None,
+            search_match: None,
+        },
+    };
+    let zones = cf_client.request(&list_zone_req).await?.result;
+    if zones.is_empty() {
+        return Err(anyhow::anyhow!("No zone found"));
+    }
+    Ok(zones[0].id.clone())
 }
 
 fn dns_record_type(r: &DnsContent) -> &'static str {
@@ -101,8 +102,8 @@ pub async fn get_record(
     r: DnsContent,
     cf_client: &mut CfClient,
 ) -> Result<String> {
-    Ok(cf_client
-        .request_handle(&ListDnsRecords {
+    let dns_records = cf_client
+        .request(&ListDnsRecords {
             zone_identifier,
             params: ListDnsRecordsParams {
                 record_type: None,
@@ -116,7 +117,9 @@ pub async fn get_record(
         })
         .await
         .context("Couldn't fetch record")?
-        .result
+        .result;
+
+    let record = dns_records
         .iter()
         .find(|record| {
             if std::mem::discriminant(&record.content) == std::mem::discriminant(&r) {
@@ -125,9 +128,8 @@ pub async fn get_record(
                 false
             }
         })
-        .context(format!("No matching {} record found", dns_record_type(&r)))?
-        .id
-        .clone())
+        .context(format!("No matching {} record found", dns_record_type(&r)))?;
+    Ok(record.id.clone())
 }
 
 pub async fn update_record(
@@ -138,17 +140,16 @@ pub async fn update_record(
     ttl: Option<u32>,
     cf_client: &mut CfClient,
 ) -> Result<()> {
-    cf_client
-        .request_handle(&UpdateDnsRecord {
-            zone_identifier,
-            identifier,
-            params: UpdateDnsRecordParams {
-                ttl: ttl,
-                proxied: Some(false),
-                name,
-                content,
-            },
-        })
-        .await?;
+    let update_record_req = UpdateDnsRecord {
+        zone_identifier,
+        identifier,
+        params: UpdateDnsRecordParams {
+            ttl: ttl,
+            proxied: None,
+            name,
+            content,
+        },
+    };
+    cf_client.request(&update_record_req).await?;
     Ok(())
 }
