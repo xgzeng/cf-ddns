@@ -89,7 +89,7 @@ async fn main() -> Result<()> {
         log::info!("update_once");
         match update_once(&config, &mut zone, &mut cf_client).await {
             Ok(_) => (),
-            Err(err) => log::warn!("update failed: {}", err),
+            Err(err) => log::warn!("update dns record failed: {}, {}", err, err.root_cause()),
         }
 
         tokio::time::sleep(Duration::from_secs(config.interval)).await;
@@ -175,7 +175,7 @@ async fn update_ip(
             )
             .await
             .context("update_record")?;
-            log::debug!("update AAAA record to {}", ip_v6);
+            log::info!("updated AAAA record for {} to {}", domain, ip_v6);
         }
     }
     Ok(())

@@ -66,18 +66,23 @@ pub fn get_current_ipv6_local() -> Vec<Ipv6Addr> {
 }
 
 pub async fn get_zone(domain: String, cf_client: &mut CfClient) -> Result<String> {
-    let list_zone_req = ListZones {
-        params: ListZonesParams {
-            name: Some(domain),
-            status: None,
-            page: None,
-            per_page: None,
-            order: None,
-            direction: None,
-            search_match: None,
-        },
+    let list_zone_params = ListZonesParams {
+        name: Some(domain),
+        status: None,
+        page: None,
+        per_page: None,
+        order: None,
+        direction: None,
+        search_match: None,
     };
-    let zones = cf_client.request(&list_zone_req).await?.result;
+
+    let zones = cf_client
+        .request(&ListZones {
+            params: list_zone_params,
+        })
+        .await
+        .context("List zones")?
+        .result;
     if zones.is_empty() {
         return Err(anyhow::anyhow!("No zone found"));
     }
@@ -150,6 +155,9 @@ pub async fn update_record(
             content,
         },
     };
-    cf_client.request(&update_record_req).await?;
+    cf_client
+        .request(&update_record_req)
+        .await
+        .context("update dns record")?;
     Ok(())
 }
