@@ -55,11 +55,11 @@ struct Zone {
 async fn main() -> Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
-    let args = clap::Command::new("cloudflare-ddns")
+    let args = clap::Command::new("cf-ddns")
         .arg(
             clap::Arg::new("config")
                 .short('c')
-                .default_value("/etc/cloudflare-ddns.yaml"),
+                .default_value("/etc/cf-ddns.yaml"),
         )
         .get_matches();
 

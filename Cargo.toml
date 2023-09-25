@@ -1,8 +1,8 @@
 [package]
-name = "cloudflare-ddns"
-version = "0.4.0"
+name = "cf-ddns"
+version = "0.4.1"
 authors = ["Jan Christian Grünhage <jan.christian@gruenhage.xyz>"]
-edition = "2018"
+edition = "2021"
 description = "A daemon to use Cloudflare as a DDNS provider"
 repository = "https://git.jcg.re/jcgruenhage/cloudflare-ddns-service"
 homepage = "https://git.jcg.re/jcgruenhage/cloudflare-ddns-service"
@@ -22,14 +22,14 @@ tokio = { version = "1.25", features = ["macros"] }
 serde_yaml = "0.9"
 cloudflare = { git = "https://github.com/xgzeng/cloudflare-rs", branch = "master" }
 clap = "4.1"
-pnet_datalink = "0.33"
+pnet_datalink = "0.34"
 ipnetwork = "0.20"
 
 [package.metadata.deb]
 maintainer-scripts = "debian/"
 assets = [
-    ["debian/cloudflare-ddns.yaml", "etc/", "600"],
-    ["target/release/cloudflare-ddns", "usr/bin/", "755"]
+    ["debian/cf-ddns.yaml", "etc/", "600"],
+    ["target/release/cf-ddns", "usr/bin/", "755"]
 ]
-conf-files = ["/etc/cloudflare-ddns.yaml"]
+conf-files = ["/etc/cf-ddns.yaml"]
 systemd-units = { enable = false }

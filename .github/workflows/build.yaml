@@ -23,16 +23,13 @@ jobs:
         run: cargo install cargo-deb
       - name: Packaging
         run: cargo deb
-      # - uses: actions/upload-artifact@v3
-      #   with:
-      #     path: target/debian/cloudflare-ddns_*.deb
-      - name: Read Cargo.toml
+      - name: Read package version
         id: read_version
         uses: wowjeeez/rust-conf-read@v1.0.2
       - uses: djnicholson/release-action@v2.11
         with:
           release-name: 'Latest rolling build'
           tag-name: 'latest-rolling'
-          asset-name: 'cloudflare-ddns_latest_amd64.deb'
+          asset-name: 'cf-ddns_latest_amd64.deb'
           token: ${{ secrets.GITHUB_TOKEN }}
-          file: 'target/debian/cloudflare-ddns_${{ steps.read_version.outputs.version }}_amd64.deb'
+          file: 'target/debian/cf-ddns_${{ steps.read_version.outputs.version }}_amd64.deb'
