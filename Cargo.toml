@@ -1,6 +1,6 @@
 [package]
 name = "cf-ddns"
-version = "0.4.1"
+version = "0.4.2"
 authors = ["Jan Christian Grünhage <jan.christian@gruenhage.xyz>"]
 edition = "2021"
 description = "A daemon to use Cloudflare as a DDNS provider"

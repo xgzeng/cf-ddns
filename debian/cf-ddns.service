@@ -2,7 +2,7 @@
 Description=Cloudflare DDNS Service
 
 [Service]
-ExecStart=/usr/bin/cloudflare-ddns -c /etc/cloudflare-ddns.yaml
+ExecStart=/usr/bin/cf-ddns -c /etc/cf-ddns.yaml
 
 [Install]
 WantedBy=multi-user.target
