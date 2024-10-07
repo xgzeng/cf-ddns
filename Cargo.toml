@@ -1,6 +1,6 @@
 [package]
 name = "cf-ddns"
-version = "0.4.2"
+version = "0.4.3"
 authors = ["Jan Christian Grünhage <jan.christian@gruenhage.xyz>"]
 edition = "2021"
 description = "A daemon to use Cloudflare as a DDNS provider"
@@ -13,16 +13,16 @@ documentation = "https://git.jcg.re/jcgruenhage/cloudflare-ddns-service"
 readme = "README.md"
 
 [dependencies]
-reqwest = { version = "0.11", features = ["blocking", "json"] }
+reqwest = { version = "0.12", features = ["json"] }
 serde = { version = "1.0", features = ["derive"] }
-anyhow = { version = "1.0" }
-env_logger = "0.10"
+anyhow = "1.0"
+env_logger = "0.11"
 log = "0.4"
-tokio = { version = "1.25", features = ["macros"] }
+tokio = { version = "1.40", features = ["macros"] }
 serde_yaml = "0.9"
 cloudflare = { git = "https://github.com/xgzeng/cloudflare-rs", branch = "master" }
-clap = "4.1"
-pnet_datalink = "0.34"
+clap = "4.5"
+pnet_datalink = "0.35"
 ipnetwork = "0.20"
 
 [package.metadata.deb]

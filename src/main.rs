@@ -86,7 +86,6 @@ async fn main() -> Result<()> {
 
     loop {
         // loop once
-        log::info!("update_once");
         match update_once(&config, &mut zone, &mut cf_client).await {
             Ok(_) => (),
             Err(err) => log::warn!("update dns record failed: {}, {}", err, err.root_cause()),
@@ -104,10 +103,11 @@ async fn update_once(config: &Config, zone: &mut Zone, cf_client: &mut CfClient)
     log::debug!("local ips: {:?}", addrs);
 
     if addrs == zone.local_ips {
-        // ip address not changed
-        log::info!("ip address no change");
+        log::debug!("local ip address not changed");
         return Ok(());
     }
+
+    log::info!("local ip address set changed, updating...");
 
     if zone.zone_id.is_none() {
         let zid = get_zone(zone.zone_name.clone(), cf_client).await?;
@@ -137,7 +137,7 @@ async fn update_ip(
     ip: &IpAddr,
     ttl: Option<u32>,
 ) -> Result<()> {
-    log::info!("update_ip: {} {} ttl={:?}", domain, ip, ttl);
+    log::info!("update {} to {} ttl={:?}", domain, ip, ttl);
 
     match ip {
         IpAddr::V4(ip_v4) => {
@@ -156,9 +156,8 @@ async fn update_ip(
                 ttl,
                 cf_client,
             )
-            .await?;
-
-            log::info!("update A record to {}", ip_v4);
+            .await
+            .context("update A record")?;
         }
         IpAddr::V6(ip_v6) => {
             let record_id = get_record(zone_id, domain, network::AAAA_RECORD, cf_client)
@@ -174,10 +173,10 @@ async fn update_ip(
                 cf_client,
             )
             .await
-            .context("update_record")?;
-            log::info!("updated AAAA record for {} to {}", domain, ip_v6);
+            .context("update AAAA record")?;
         }
     }
+    log::info!("update successful");
     Ok(())
 }
 
