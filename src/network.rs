@@ -1,25 +1,8 @@
 use ipnetwork::IpNetwork;
 use std::net::{Ipv4Addr, Ipv6Addr};
 
-use anyhow::{Context, Result};
-use cloudflare::{
-    endpoints::{
-        dns::{
-            DnsContent, ListDnsRecords, ListDnsRecordsParams, UpdateDnsRecord,
-            UpdateDnsRecordParams,
-        },
-        zone::{ListZones, ListZonesParams},
-    },
-    framework::async_api::Client as CfClient,
-};
+use anyhow::Result;
 use reqwest::Client as ReqwClient;
-
-pub const A_RECORD: DnsContent = DnsContent::A {
-    content: Ipv4Addr::UNSPECIFIED,
-};
-pub const AAAA_RECORD: DnsContent = DnsContent::AAAA {
-    content: Ipv6Addr::UNSPECIFIED,
-};
 
 pub async fn get_current_ipv4(client: &mut ReqwClient) -> Result<Ipv4Addr> {
     Ok(client
@@ -52,7 +35,7 @@ fn is_unicast_global(addr: &Ipv6Addr) -> bool {
         && !((addr.segments()[0] == 0x2001) && (addr.segments()[1] == 0xdb8))
 }
 
-pub fn get_current_ipv6_local() -> Vec<Ipv6Addr> {
+pub fn get_current_ipv6_local(max_count: u8) -> Vec<Ipv6Addr> {
     pnet_datalink::interfaces()
         .into_iter()
         .flat_map(|net_if| net_if.ips)
@@ -62,102 +45,6 @@ pub fn get_current_ipv6_local() -> Vec<Ipv6Addr> {
             }
             _ => None,
         })
+        .take(max_count as usize)
         .collect()
-}
-
-pub async fn get_zone(domain: String, cf_client: &mut CfClient) -> Result<String> {
-    let list_zone_params = ListZonesParams {
-        name: Some(domain),
-        status: None,
-        page: None,
-        per_page: None,
-        order: None,
-        direction: None,
-        search_match: None,
-    };
-
-    let zones = cf_client
-        .request(&ListZones {
-            params: list_zone_params,
-        })
-        .await
-        .context("List zones")?
-        .result;
-    if zones.is_empty() {
-        return Err(anyhow::anyhow!("No zone found"));
-    }
-    Ok(zones[0].id.clone())
-}
-
-fn dns_record_type(r: &DnsContent) -> &'static str {
-    match r {
-        DnsContent::A { .. } => "A",
-        DnsContent::AAAA { .. } => "AAAA",
-        DnsContent::CNAME { .. } => "CNAME",
-        DnsContent::NS { .. } => "NS",
-        DnsContent::MX { .. } => "MX",
-        DnsContent::TXT { .. } => "TXT",
-        DnsContent::SRV { .. } => "SRV",
-    }
-}
-
-pub async fn get_record(
-    zone_identifier: &str,
-    domain: &str,
-    r: DnsContent,
-    cf_client: &mut CfClient,
-) -> Result<String> {
-    let dns_records = cf_client
-        .request(&ListDnsRecords {
-            zone_identifier,
-            params: ListDnsRecordsParams {
-                record_type: None,
-                name: Some(domain.to_string()),
-                page: None,
-                per_page: None,
-                order: None,
-                direction: None,
-                search_match: None,
-            },
-        })
-        .await
-        .context("Couldn't fetch record")?
-        .result;
-
-    let record = dns_records
-        .iter()
-        .find(|record| {
-            if std::mem::discriminant(&record.content) == std::mem::discriminant(&r) {
-                true
-            } else {
-                false
-            }
-        })
-        .context(format!("No matching {} record found", dns_record_type(&r)))?;
-    Ok(record.id.clone())
-}
-
-pub async fn update_record(
-    zone_identifier: &str,
-    identifier: &str,
-    name: &str,
-    content: DnsContent,
-    ttl: Option<u32>,
-    cf_client: &mut CfClient,
-) -> Result<()> {
-    let update_record_req = UpdateDnsRecord {
-        zone_identifier,
-        identifier,
-        params: UpdateDnsRecordParams {
-            ttl: ttl,
-            proxied: None,
-            name,
-            content,
-        },
-    };
-    cf_client
-        .request(&update_record_req)
-        .await
-        .context("update dns record")?;
-    Ok(())
 }
