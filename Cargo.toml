@@ -23,7 +23,11 @@ serde_yaml = "0.9"
 cloudflare = { git = "https://github.com/xgzeng/cloudflare-rs", branch = "master" }
 clap = "4.5"
 pnet_datalink = "0.35"
+
 ipnetwork = "0.20"
+rtnetlink = "0.14"
+netlink-packet-route = "0.19"
+futures-util = "0.3"
 
 [package.metadata.deb]
 maintainer-scripts = "debian/"

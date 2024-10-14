@@ -17,6 +17,7 @@ pub struct DDnsClientOption {
     pub ipv4: bool,
     pub ipv6: bool,
     pub ttl: Option<u32>,
+    pub max_count: u8,
 }
 
 pub struct DDnsClient {
@@ -156,6 +157,7 @@ impl DDnsClient {
     }
 
     async fn refresh_records(&mut self) -> Result<()> {
+        log::info!("refresh dns records");
         let records = get_address_records(
             &mut self.client,
             &self.zone_id,
@@ -191,6 +193,15 @@ impl DDnsClient {
             diff_records(self.records.split_off(0), ips);
 
         self.records = records_to_keep;
+
+        // we don't want to exceed the max count
+        if self.records.len() >= self.options.max_count as usize {
+            ips_to_add.clear();
+        } else {
+            let max_to_add = self.options.max_count as usize - self.records.len();
+            assert!(max_to_add >= 1);
+            ips_to_add.truncate(max_to_add);
+        }
 
         if records_to_delete.is_empty() && ips_to_add.is_empty() {
             log::debug!("no record changes");
@@ -243,7 +254,7 @@ impl DDnsClient {
         let create_record_req = CreateDnsRecord {
             zone_identifier: &self.zone_id,
             params: CreateDnsRecordParams {
-                ttl: None,
+                ttl: self.options.ttl,
                 priority: None,
                 proxied: None,
                 name: &self.domain_name,

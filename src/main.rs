@@ -23,9 +23,7 @@ struct Config {
     ipv6: bool,
     #[serde(default = "default_duration")]
     interval: u64,
-    // #[serde(default = 10)]
     ttl: Option<u32>,
-    //
     validation_ips: Option<Vec<IpAddr>>,
 }
 
@@ -68,6 +66,7 @@ async fn main() -> Result<()> {
             ipv4: config.ipv4,
             ipv6: config.ipv6,
             ttl: config.ttl,
+            max_count: 2,
         },
     )
     .await?;
@@ -83,36 +82,19 @@ async fn main() -> Result<()> {
 }
 
 async fn update_once(config: &Config, ddns_client: &mut DDnsClient) -> Result<()> {
-    let mut reqw_client = ReqwClient::new();
-
-    // query local ips
-    let addrs = match query_local_ips(&mut reqw_client, config.ipv4, config.ipv6).await {
-        Ok(addrs) => addrs,
-        Err(err) => {
-            log::warn!("query local ips failed: {}", err);
-            return Ok(());
-        }
-    };
-
-    log::info!("local ips: {:?}", addrs);
+    // get my ip by online service
+    // let mut reqw_client = ReqwClient::new();
+    // let addrs = match query_local_ips(&mut reqw_client, config.ipv4, config.ipv6).await {
+    //     Ok(addrs) => addrs,
+    //     Err(err) => {
+    //         log::warn!("query local ips failed: {}", err);
+    //         return Ok(());
+    //     }
+    // };
+    // log::info!("local ips: {:?}", addrs);
+    let addrs = network::rtnetlink_get_addresses(config.ipv4, config.ipv6).await?;
     ddns_client.update_ips(&addrs).await?;
     Ok(())
-}
-
-async fn query_local_ips(reqw_client: &mut ReqwClient, v4: bool, v6: bool) -> Result<Vec<IpAddr>> {
-    let mut addrs: Vec<IpAddr> = vec![];
-
-    if v4 {
-        let addr = get_current_ipv4(reqw_client).await?;
-        addrs.push(IpAddr::V4(addr))
-    }
-
-    if v6 {
-        let addrs_v6 = get_current_ipv6_local(2);
-        addrs.extend(addrs_v6.into_iter().map(|ip| IpAddr::V6(ip)));
-    }
-
-    Ok(addrs)
 }
 
 fn yes() -> bool {
