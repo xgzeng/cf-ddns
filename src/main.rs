@@ -1,16 +1,13 @@
 mod cf_client;
-mod network;
+mod myip;
 
 use anyhow::{Context, Result};
 use cf_client::{DDnsClient, DDnsClientOption};
-use network::{get_current_ipv4, get_current_ipv6, get_current_ipv6_local};
 
 use clap;
 use serde_yaml;
 
 use std::{fs::File, net::IpAddr, time::Duration};
-
-use reqwest::Client as ReqwClient;
 
 #[derive(serde::Serialize, serde::Deserialize)]
 struct Config {
@@ -23,7 +20,8 @@ struct Config {
     ipv6: bool,
     #[serde(default = "default_duration")]
     interval: u64,
-    ttl: Option<u32>,
+    #[serde(default = "default_ttl")]
+    ttl: u32,
     validation_ips: Option<Vec<IpAddr>>,
 }
 
@@ -58,6 +56,12 @@ async fn main() -> Result<()> {
     // read config file
     let config = Config::load(config_file)?;
 
+    let ttl = if config.ttl == 0 {
+        None
+    } else {
+        Some(config.ttl)
+    };
+
     let mut ddns_client = DDnsClient::new(
         config.api_token.clone(),
         config.zone.clone(),
@@ -65,7 +69,7 @@ async fn main() -> Result<()> {
         DDnsClientOption {
             ipv4: config.ipv4,
             ipv6: config.ipv6,
-            ttl: config.ttl,
+            ttl,
             max_count: 2,
         },
     )
@@ -83,7 +87,7 @@ async fn main() -> Result<()> {
 
 async fn update_once(config: &Config, ddns_client: &mut DDnsClient) -> Result<()> {
     // get my ip by online service
-    // let mut reqw_client = ReqwClient::new();
+    // 
     // let addrs = match query_local_ips(&mut reqw_client, config.ipv4, config.ipv6).await {
     //     Ok(addrs) => addrs,
     //     Err(err) => {
@@ -92,7 +96,16 @@ async fn update_once(config: &Config, ddns_client: &mut DDnsClient) -> Result<()
     //     }
     // };
     // log::info!("local ips: {:?}", addrs);
-    let addrs = network::rtnetlink_get_addresses(config.ipv4, config.ipv6).await?;
+    let my_ip_options = myip::Options {
+        ipv4: config.ipv4,
+        ipv6: config.ipv6,
+    };
+
+    let addrs = myip::try_detect_public_ip(my_ip_options).await;
+    if addrs.is_empty() {
+        log::warn!("no public ip address found");
+        return Ok(());
+    }
     ddns_client.update_ips(&addrs).await?;
     Ok(())
 }
@@ -103,4 +116,8 @@ fn yes() -> bool {
 
 fn default_duration() -> u64 {
     60
+}
+
+fn default_ttl() -> u32 {
+    600
 }

@@ -1,5 +1,9 @@
+/// module used to detect public ip addresses
 use ipnetwork::IpNetwork;
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use std::{
+    net::{IpAddr, Ipv6Addr},
+    vec,
+};
 
 use anyhow::Result;
 use reqwest::Client as ReqwClient;
@@ -11,46 +15,57 @@ use netlink_packet_route::{
 
 use futures_util::TryStreamExt;
 
-pub async fn query_local_ips(
-    reqw_client: &mut ReqwClient,
-    v4: bool,
-    v6: bool,
-) -> Result<Vec<IpAddr>> {
-    let mut addrs: Vec<IpAddr> = vec![];
+pub struct Options {
+    pub ipv4: bool, // enable detection of ipv4 address
+    pub ipv6: bool, // enable detection of ipv6 address
+}
 
-    if v4 {
-        let addr = get_current_ipv4(reqw_client).await?;
-        addrs.push(IpAddr::V4(addr))
+pub async fn try_detect_public_ip(options: Options) -> Vec<IpAddr> {
+    // detect with online service
+    match detect_online(&options).await {
+        Ok(addrs) => return addrs,
+        Err(err) => {
+            log::warn!("detect public ip failed: {}", err);
+        }
+    };
+
+    // detect with netlink
+    match rtnetlink_get_addresses(&options).await {
+        Ok(addrs) => return addrs,
+        Err(err) => {
+            log::warn!("detect public ip failed: {}", err);
+        }
+    };
+
+    vec![]
+}
+
+// detect public ip address by online service
+async fn detect_online(options: &Options) -> Result<Vec<IpAddr>> {
+    let reqw_client = ReqwClient::new();
+
+    // https://icanhazip.com
+    let mut urls = vec![];
+    if options.ipv4 {
+        urls.push("https://ipv4.icanhazip.com");
+    }
+    if options.ipv6 {
+        urls.push("https://ipv6.icanhazip.com");
     }
 
-    if v6 {
-        let addrs_v6 = get_current_ipv6_local(2);
-        addrs.extend(addrs_v6.into_iter().map(|ip| IpAddr::V6(ip)));
+    let mut addrs = vec![];
+    for url in urls {
+        let addr: IpAddr = reqw_client
+            .get(url)
+            .send()
+            .await?
+            .text()
+            .await?
+            .trim()
+            .parse()?;
+        addrs.push(addr);
     }
-
     Ok(addrs)
-}
-
-pub async fn get_current_ipv4(client: &mut ReqwClient) -> Result<Ipv4Addr> {
-    Ok(client
-        .get("https://ipv4.icanhazip.com")
-        .send()
-        .await?
-        .text()
-        .await?
-        .trim()
-        .parse()?)
-}
-
-pub async fn get_current_ipv6(client: &mut ReqwClient) -> Result<Ipv6Addr> {
-    Ok(client
-        .get("https://ipv6.icanhazip.com")
-        .send()
-        .await?
-        .text()
-        .await?
-        .trim()
-        .parse()?)
 }
 
 fn is_unicast_global(addr: &Ipv6Addr) -> bool {
@@ -62,29 +77,23 @@ fn is_unicast_global(addr: &Ipv6Addr) -> bool {
         && !((addr.segments()[0] == 0x2001) && (addr.segments()[1] == 0xdb8))
 }
 
-pub fn get_current_ipv6_local(max_count: u8) -> Vec<Ipv6Addr> {
-    pnet_datalink::interfaces()
-        .into_iter()
-        .flat_map(|net_if| net_if.ips)
-        .filter_map(|ip| match ip {
-            IpNetwork::V6(addr_v6) if is_unicast_global(&addr_v6.ip()) => {
-                Some(addr_v6.ip().clone())
-            }
-            _ => None,
-        })
-        .take(max_count as usize)
-        .collect()
-}
-
-// struct RtnetlinkClient {
-//     conn: rtnetlink::Connection,
-//     handle: rtnetlink::Handle,
-//     receiver: rtnetlink::Receiver,
-//     addr: rtnetlink::Address,
+/// get ip with pnet_datalink
+// pub fn get_current_ipv6_local(max_count: u8) -> Vec<Ipv6Addr> {
+//     pnet_datalink::interfaces()
+//         .into_iter()
+//         .flat_map(|net_if| net_if.ips)
+//         .filter_map(|ip| match ip {
+//             IpNetwork::V6(addr_v6) if is_unicast_global(&addr_v6.ip()) => {
+//                 Some(addr_v6.ip().clone())
+//             }
+//             _ => None,
+//         })
+//         .take(max_count as usize)
+//         .collect()
 // }
 
 // use rtlink to retrieve local ip addresses
-pub async fn rtnetlink_get_addresses(ipv4: bool, ipv6: bool) -> Result<Vec<IpAddr>> {
+pub async fn rtnetlink_get_addresses(options: &Options) -> Result<Vec<IpAddr>> {
     let (conn, handle, _) = rtnetlink::new_connection()?;
     // Spawn the `Connection` so that it starts polling the netlink socket in the background.
     tokio::spawn(conn);
@@ -97,8 +106,8 @@ pub async fn rtnetlink_get_addresses(ipv4: bool, ipv6: bool) -> Result<Vec<IpAdd
     while let Some(addr_msg) = stream.try_next().await? {
         // skip non-IPv4/IPv6 addresses
         let valid_addr = match addr_msg.header.family {
-            AddressFamily::Inet => ipv4,
-            AddressFamily::Inet6 => ipv6,
+            AddressFamily::Inet => options.ipv4,
+            AddressFamily::Inet6 => options.ipv6,
             _ => false,
         };
         if !valid_addr {

@@ -270,7 +270,7 @@ impl DDnsClient {
             zone_identifier: &self.zone_id,
             identifier: record_id,
             params: UpdateDnsRecordParams {
-                ttl: None,
+                ttl: self.options.ttl,
                 proxied: None,
                 name: &self.domain_name,
                 content: ipaddr_to_dnscontent(ip),
