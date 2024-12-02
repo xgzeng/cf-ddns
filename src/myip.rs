@@ -8,11 +8,6 @@ use std::{
 use anyhow::Result;
 use reqwest::Client as ReqwClient;
 
-use netlink_packet_route::{
-    address::{AddressAttribute, AddressScope},
-    AddressFamily,
-};
-
 use futures_util::TryStreamExt;
 
 pub struct Options {
@@ -29,7 +24,8 @@ pub async fn try_detect_public_ip(options: Options) -> Vec<IpAddr> {
         }
     };
 
-    // detect with netlink
+    // detect with netlink on linux
+    #[cfg(target_os = "linux")]
     match rtnetlink_get_addresses(&options).await {
         Ok(addrs) => return addrs,
         Err(err) => {
@@ -77,7 +73,6 @@ fn is_unicast_global(addr: &Ipv6Addr) -> bool {
         && !((addr.segments()[0] == 0x2001) && (addr.segments()[1] == 0xdb8))
 }
 
-/// get ip with pnet_datalink
 // pub fn get_current_ipv6_local(max_count: u8) -> Vec<Ipv6Addr> {
 //     pnet_datalink::interfaces()
 //         .into_iter()
@@ -93,7 +88,13 @@ fn is_unicast_global(addr: &Ipv6Addr) -> bool {
 // }
 
 // use rtlink to retrieve local ip addresses
+#[cfg(target_os = "linux")]
 pub async fn rtnetlink_get_addresses(options: &Options) -> Result<Vec<IpAddr>> {
+    use netlink_packet_route::{
+        address::{AddressAttribute, AddressScope},
+        AddressFamily,
+    };
+    
     let (conn, handle, _) = rtnetlink::new_connection()?;
     // Spawn the `Connection` so that it starts polling the netlink socket in the background.
     tokio::spawn(conn);

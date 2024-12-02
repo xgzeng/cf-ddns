@@ -25,9 +25,12 @@ clap = "4.5"
 pnet_datalink = "0.35"
 
 ipnetwork = "0.20"
+
+futures-util = "0.3"
+
+[target.'cfg(linux)'.dependencies]
 rtnetlink = "0.14"
 netlink-packet-route = "0.19"
-futures-util = "0.3"
 
 [package.metadata.deb]
 maintainer-scripts = "debian/"
