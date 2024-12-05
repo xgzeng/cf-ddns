@@ -8,6 +8,7 @@ use clap;
 use serde_yaml;
 
 use std::{fs::File, net::IpAddr, time::Duration};
+use std::os::unix::fs::PermissionsExt;
 
 #[derive(serde::Serialize, serde::Deserialize)]
 struct Config {
@@ -30,8 +31,16 @@ impl Config {
     where
         P: AsRef<std::path::Path>,
     {
+        // check config file permission, should not been readable by other user
+        let metadata = std::fs::metadata(&path)?;
+        let permissions = metadata.permissions();
+        let mode = permissions.mode();
+        if mode & 0o077 != 0 {
+            return Err(anyhow::anyhow!("config file is readable by others"));
+        }
+
         // read config file
-        let cfg_reader = File::open(path).context("open config file failed")?;
+        let cfg_reader = File::open(path)?;
         let config: Config = serde_yaml::from_reader(cfg_reader)?;
 
         Ok(config)
@@ -54,7 +63,7 @@ async fn main() -> Result<()> {
     let config_file = args.get_one::<String>("config").unwrap();
 
     // read config file
-    let config = Config::load(config_file)?;
+    let config = Config::load(config_file).context(format!("load {} failed", config_file))?;
 
     let ttl = if config.ttl == 0 {
         None
@@ -87,7 +96,7 @@ async fn main() -> Result<()> {
 
 async fn update_once(config: &Config, ddns_client: &mut DDnsClient) -> Result<()> {
     // get my ip by online service
-    // 
+    //
     // let addrs = match query_local_ips(&mut reqw_client, config.ipv4, config.ipv6).await {
     //     Ok(addrs) => addrs,
     //     Err(err) => {

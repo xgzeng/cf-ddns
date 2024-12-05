@@ -1,5 +1,4 @@
 /// module used to detect public ip addresses
-use ipnetwork::IpNetwork;
 use std::{
     net::{IpAddr, Ipv6Addr},
     vec,
@@ -7,8 +6,6 @@ use std::{
 
 use anyhow::Result;
 use reqwest::Client as ReqwClient;
-
-use futures_util::TryStreamExt;
 
 pub struct Options {
     pub ipv4: bool, // enable detection of ipv4 address

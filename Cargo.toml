@@ -30,7 +30,7 @@ futures-util = "0.3"
 
 [target.'cfg(linux)'.dependencies]
 rtnetlink = "0.14"
-netlink-packet-route = "0.19"
+netlink-packet-route = "0.21.0"
 
 [package.metadata.deb]
 maintainer-scripts = "debian/"
