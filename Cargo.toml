@@ -28,9 +28,9 @@ ipnetwork = "0.20"
 
 futures-util = "0.3"
 
-[target.'cfg(linux)'.dependencies]
+[target.'cfg(target_os = "linux")'.dependencies]
+netlink-packet-route = ">=0.19"
 rtnetlink = "0.14"
-netlink-packet-route = "0.21.0"
 
 [package.metadata.deb]
 maintainer-scripts = "debian/"

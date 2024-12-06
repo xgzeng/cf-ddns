@@ -6,6 +6,13 @@ use std::{
 
 use anyhow::Result;
 use reqwest::Client as ReqwClient;
+use futures_util::TryStreamExt;
+
+//#[cfg(target_os = "linux")]
+use netlink_packet_route::{
+    address::{AddressAttribute, AddressScope},
+    AddressFamily,
+};
 
 pub struct Options {
     pub ipv4: bool, // enable detection of ipv4 address
@@ -86,12 +93,7 @@ fn is_unicast_global(addr: &Ipv6Addr) -> bool {
 
 // use rtlink to retrieve local ip addresses
 #[cfg(target_os = "linux")]
-pub async fn rtnetlink_get_addresses(options: &Options) -> Result<Vec<IpAddr>> {
-    use netlink_packet_route::{
-        address::{AddressAttribute, AddressScope},
-        AddressFamily,
-    };
-    
+pub async fn rtnetlink_get_addresses(options: &Options) -> Result<Vec<IpAddr>> {    
     let (conn, handle, _) = rtnetlink::new_connection()?;
     // Spawn the `Connection` so that it starts polling the netlink socket in the background.
     tokio::spawn(conn);
