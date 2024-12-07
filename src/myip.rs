@@ -8,7 +8,7 @@ use anyhow::Result;
 use reqwest::Client as ReqwClient;
 use futures_util::TryStreamExt;
 
-//#[cfg(target_os = "linux")]
+#[cfg(target_os = "linux")]
 use netlink_packet_route::{
     address::{AddressAttribute, AddressScope},
     AddressFamily,
