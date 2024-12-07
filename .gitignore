@@ -1,4 +1,8 @@
+.env
+.DS_Store
 target
 **/*.rs.bk
 debian
 config.yaml
+.act_artifacts
+.act_cache

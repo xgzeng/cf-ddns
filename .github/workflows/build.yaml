@@ -12,24 +12,42 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        distribution: [ ubuntu:24.04 ]
+    container: ${{ matrix.distribution }}
 
     steps:
-      - uses: actions/checkout@v3
-      - name: Build
-        run: cargo build --verbose
-      - name: Run tests
-        run: cargo test --verbose
+      # node is required by most of the actions
+      - run: apt-get install -y nodejs
+      - name: Read system info
+        uses: kenchan0130/actions-system-info@master
+        id: system-info
+      - run: echo "System info ${{ steps.system-info.outputs.system_info }}"
+
+      - uses: actions/checkout@v3        
+      - name: "Install build deps"
+        run: ./scripts/install_builddeps.sh
+      - name: "Install Rust"
+        uses: dtolnay/rust-toolchain@stable
       - name: Install cargo-deb
         run: cargo install cargo-deb
+      - name: Build
+        run: cargo build --release
       - name: Packaging
         run: cargo deb
-      - name: Read package version
+      - name: Read crate version
         id: read_version
         uses: wowjeeez/rust-conf-read@v1.0.2
-      - uses: djnicholson/release-action@v2.11
+      - name: "Upload artifact"
+        uses: actions/upload-artifact@v4
         with:
-          release-name: 'Latest rolling build'
-          tag-name: 'latest-rolling'
-          asset-name: 'cf-ddns_latest_amd64.deb'
-          token: ${{ secrets.GITHUB_TOKEN }}
-          file: 'target/debian/cf-ddns_${{ steps.read_version.outputs.version }}_amd64.deb'
+          name: "${{ steps.system-info.outputs.name }}-${{ steps.system-info.outputs.release }}"
+          path: target/debian/cf-ddns_*.deb
+      # - uses: djnicholson/release-action@v2.11
+      #   with:
+      #     release-name: 'Latest rolling build'
+      #     tag-name: 'latest-rolling'
+      #     asset-name: 'cf-ddns_latest_amd64.deb'
+      #     token: ${{ secrets.GITHUB_TOKEN }}
+      #     file: 'target/debian/cf-ddns_${{ steps.read_version.outputs.version }}_amd64.deb'

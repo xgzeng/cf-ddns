@@ -27,7 +27,7 @@ mkdir -p "${SCRIPTS_DIR}"
 
 # Copy files to package directory
 cp target/release/cf-ddns "${PKG_DIR}/usr/local/bin"
-cp misc/cf-ddns.plist "${PKG_DIR}/Library/LaunchDaemons/${IDENTIFIER}.plist"
+cp ./scripts/cf-ddns.plist "${PKG_DIR}/Library/LaunchDaemons/${IDENTIFIER}.plist"
 cp debian/cf-ddns.yaml "${PKG_DIR}/etc/cf-ddns.yaml.template"
 
 # Create postinstall script
