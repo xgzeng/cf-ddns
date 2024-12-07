@@ -29,14 +29,23 @@ ipnetwork = "0.20"
 futures-util = "0.3"
 
 [target.'cfg(target_os = "linux")'.dependencies]
-netlink-packet-route = ">=0.19"
+netlink-packet-route = "0.19"
 rtnetlink = "0.14"
 
 [package.metadata.deb]
+revision = "2"
 maintainer-scripts = "debian/"
 assets = [
-    ["debian/cf-ddns.yaml", "etc/", "600"],
-    ["target/release/cf-ddns", "usr/bin/", "755"]
+    [
+        "debian/cf-ddns.yaml",
+        "etc/",
+        "600",
+    ],
+    [
+        "target/release/cf-ddns",
+        "usr/bin/",
+        "755",
+    ],
 ]
 conf-files = ["/etc/cf-ddns.yaml"]
 systemd-units = { enable = false }
