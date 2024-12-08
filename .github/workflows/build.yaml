@@ -24,31 +24,15 @@ jobs:
         uses: kenchan0130/actions-system-info@master
         id: system-info
       - run: echo "System info ${{ steps.system-info.outputs.system_info }}"
-      - name: Get deb arch name
-        id: deb-arch
-        run: echo "arch=$(dpkg --print-architecture)" >> $GITHUB_OUTPUT
       - uses: actions/checkout@v3
       - name: "Install build deps for native-tls"
         run: ./scripts/install_builddeps.sh
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
-      - name: Install cargo-deb
-        run: cargo install cargo-deb
-      - name: Build
-        run: cargo build --release
-      - name: Packaging
-        run: cargo deb
-      - name: Read crate version
-        id: crate_version
-        uses: SebRollen/toml-action@v1.2.0
-        with:
-          file: Cargo.toml
-          field: package.version
-      - name: Read cargo-deb revision
-        id: deb_revision
-        uses: SebRollen/toml-action@v1.2.0
-        with:
-          file: Cargo.toml
-          field: package.metadata.deb.revision
+      - name: Install Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+      - run: cargo build
+      - name: Create deb package
+        id: cargo-deb
+        uses: ./.github/actions/cargo-deb
       - name: "Upload artifact"
         uses: actions/upload-artifact@v4
         env:
@@ -57,7 +41,7 @@ jobs:
           http_proxy: ""
         with:
           name: "${{ steps.system-info.outputs.name }}-${{ steps.system-info.outputs.release }}"
-          path: target/debian/cf-ddns_${{ steps.crate_version.outputs.value }}-${{steps.deb_revision.outputs.value}}_${{ steps.deb-arch.outputs.arch }}.deb
+          path: target/debian/${{ steps.cargo-deb.outputs.name }}
           if-no-files-found: error
       # - uses: djnicholson/release-action@v2.11
       #   with:

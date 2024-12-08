@@ -1,0 +1,35 @@
+name: "Cargo Deb"
+description: "Create a deb package with cargo deb"
+inputs:
+  token:
+    description: "GitHub Token"
+    required: true
+outputs:
+  name:
+    description: "The generated deb file name"
+    value: ${{ steps.set-output.outputs.name }}
+runs:
+  using: "composite"
+  steps:
+    - run: cargo install cargo-deb
+    #- run: cargo build --release
+    - run: cargo deb
+    - id: deb-arch
+      run: echo "arch=$(dpkg --print-architecture)" >> $GITHUB_OUTPUT
+    - id: crate-name
+      uses: SebRollen/toml-action@v1.2.0
+      with:
+        file: Cargo.toml
+        field: package.name
+    - id: crate-version
+      uses: SebRollen/toml-action@v1.2.0
+      with:
+        file: Cargo.toml
+        field: package.version
+    - id: deb-revision
+      uses: SebRollen/toml-action@v1.2.0
+      with:
+        file: Cargo.toml
+        field: package.metadata.deb.revision
+    - id: set-output
+      run: echo "name=${{ steps.crate-name.outputs.value }}_${{ steps.crate-version.outputs.value }}-${{ steps.deb-revision.outputs.value }}_${{ steps.deb-arch.outputs.arch }}.deb" >> $GITHUB_OUTPUT
