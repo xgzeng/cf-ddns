@@ -12,10 +12,13 @@ runs:
   using: "composite"
   steps:
     - run: cargo install cargo-deb
+      shell: bash
     #- run: cargo build --release
     - run: cargo deb
+      shell: bash
     - id: deb-arch
       run: echo "arch=$(dpkg --print-architecture)" >> $GITHUB_OUTPUT
+      shell: bash
     - id: crate-name
       uses: SebRollen/toml-action@v1.2.0
       with:
@@ -32,4 +35,5 @@ runs:
         file: Cargo.toml
         field: package.metadata.deb.revision
     - id: set-output
+      shell: bash
       run: echo "name=${{ steps.crate-name.outputs.value }}_${{ steps.crate-version.outputs.value }}-${{ steps.deb-revision.outputs.value }}_${{ steps.deb-arch.outputs.arch }}.deb" >> $GITHUB_OUTPUT
