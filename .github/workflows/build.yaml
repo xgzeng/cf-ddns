@@ -14,8 +14,8 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        distribution: [ubuntu:24.04]
-    container: ${{ matrix.distribution }}
+        distro: [ "ubuntu:24.04", "debian:12" ]
+    container: ${{ matrix.distro }}
 
     steps:
       # node is required by most of the actions
