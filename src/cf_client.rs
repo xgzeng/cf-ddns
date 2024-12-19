@@ -25,7 +25,7 @@ pub struct DDnsClient {
     zone_name: String,
     domain_name: String,
     options: DDnsClientOption,
-    zone_id: String,         // cloudflare api zone id
+    zone_id: Option<String>, // zone id cache
     records: Vec<DnsRecord>, // cache existing dns records
     records_dirty: bool,
 }
@@ -137,30 +137,36 @@ impl DDnsClient {
         domain_name: String,
         options: DDnsClientOption,
     ) -> Result<Self> {
-        let mut client = CfClient::new(
+        let client = CfClient::new(
             Credentials::UserAuthToken { token: token },
             HttpApiClientConfig::default(),
             Environment::Production,
         )?;
-
-        let zone_id = get_zone_id(zone_name.clone(), &mut client).await?;
 
         Ok(DDnsClient {
             client,
             zone_name,
             domain_name,
             options,
-            zone_id,
+            zone_id: None,
             records: vec![],
             records_dirty: true,
         })
     }
 
+    async fn zone_id(&mut self) -> Result<String> {
+        if self.zone_id.is_none() {
+            self.zone_id = Some(get_zone_id(self.zone_name.clone(), &mut self.client).await?);
+        }
+        Ok(self.zone_id.clone().unwrap())
+    }
+
     async fn refresh_records(&mut self) -> Result<()> {
         log::info!("refresh dns records");
+        let zone_id = self.zone_id().await?;
         let records = get_address_records(
             &mut self.client,
-            &self.zone_id,
+            &zone_id,
             &self.domain_name,
             self.options.ipv4,
             self.options.ipv6,
@@ -251,8 +257,9 @@ impl DDnsClient {
     }
 
     async fn do_create_record(&mut self, ip: &IpAddr) -> Result<DnsRecord> {
+        let zone_id = self.zone_id().await?;
         let create_record_req = CreateDnsRecord {
-            zone_identifier: &self.zone_id,
+            zone_identifier: &zone_id,
             params: CreateDnsRecordParams {
                 ttl: self.options.ttl,
                 priority: None,
@@ -266,8 +273,9 @@ impl DDnsClient {
     }
 
     async fn do_update_record(&mut self, record_id: &String, ip: &IpAddr) -> Result<DnsRecord> {
+        let zone_id = self.zone_id().await?;
         let update_record_req = UpdateDnsRecord {
-            zone_identifier: &self.zone_id,
+            zone_identifier: &zone_id,
             identifier: record_id,
             params: UpdateDnsRecordParams {
                 ttl: self.options.ttl,
@@ -281,9 +289,10 @@ impl DDnsClient {
     }
 
     async fn do_delete_record(&mut self, record_id: &String) -> Result<()> {
+        let zone_id = self.zone_id().await?;
         self.client
             .request(&DeleteDnsRecord {
-                zone_identifier: &self.zone_id,
+                zone_identifier: &zone_id,
                 identifier: record_id,
             })
             .await?;
