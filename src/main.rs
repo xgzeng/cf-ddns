@@ -19,7 +19,7 @@ struct Config {
     ipv4: bool,
     #[serde(default = "yes")]
     ipv6: bool,
-    #[serde(default = "default_duration")]
+    #[serde(default = "default_check_interval")]
     interval: u64,
     #[serde(default = "default_ttl")]
     ttl: u32,
@@ -129,8 +129,8 @@ fn yes() -> bool {
     true
 }
 
-fn default_duration() -> u64 {
-    60
+fn default_check_interval() -> u64 {
+    300
 }
 
 fn default_ttl() -> u32 {

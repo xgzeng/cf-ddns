@@ -1,6 +1,6 @@
 [package]
 name = "cf-ddns"
-version = "0.4.3"
+version = "0.4.4"
 authors = ["Jan Christian Grünhage <jan.christian@gruenhage.xyz>"]
 edition = "2021"
 description = "A daemon to use Cloudflare as a DDNS provider"
@@ -32,7 +32,7 @@ netlink-packet-route = "0.19"
 rtnetlink = "0.14"
 
 [package.metadata.deb]
-revision = "2"
+revision = "1"
 maintainer-scripts = "debian/"
 assets = [
     [
