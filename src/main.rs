@@ -7,14 +7,14 @@ use cf_client::{DDnsClient, DDnsClientOption};
 use clap;
 use serde_yaml;
 
-use std::{fs::File, net::IpAddr, time::Duration};
 use std::os::unix::fs::PermissionsExt;
+use std::{fs::File, net::IpAddr, time::Duration};
 
 #[derive(serde::Serialize, serde::Deserialize)]
 struct Config {
     api_token: String,
     zone: String,
-    domain: String,
+    domain: Option<String>,
     #[serde(default = "yes")]
     ipv4: bool,
     #[serde(default = "yes")]
@@ -41,7 +41,13 @@ impl Config {
 
         // read config file
         let cfg_reader = File::open(path)?;
-        let config: Config = serde_yaml::from_reader(cfg_reader)?;
+        let mut config: Config = serde_yaml::from_reader(cfg_reader)?;
+
+        if config.domain.is_none() {
+            log::info!("domain is not set, use <hostname>.<zone> as domain");
+            let domain = format!("{}.{}", hostname::get()?.to_string_lossy(), config.zone);
+            config.domain = Some(domain)
+        }
 
         Ok(config)
     }
@@ -74,7 +80,7 @@ async fn main() -> Result<()> {
     let mut ddns_client = DDnsClient::new(
         config.api_token.clone(),
         config.zone.clone(),
-        config.domain.clone(),
+        config.domain.clone().unwrap(),
         DDnsClientOption {
             ipv4: config.ipv4,
             ipv6: config.ipv6,
