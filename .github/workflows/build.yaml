@@ -43,10 +43,7 @@ jobs:
           name: "${{ steps.system-info.outputs.name }}-${{ steps.system-info.outputs.release }}"
           path: target/debian/${{ steps.cargo-deb.outputs.name }}
           if-no-files-found: error
-      # - uses: djnicholson/release-action@v2.11
-      #   with:
-      #     release-name: 'Latest rolling build'
-      #     tag-name: 'latest-rolling'
-      #     asset-name: 'cf-ddns_latest_amd64.deb'
-      #     token: ${{ secrets.GITHUB_TOKEN }}
-      #     file: 'target/debian/cf-ddns_${{ steps.read_version.outputs.version }}_amd64.deb'
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: target/debian/${{ steps.cargo-deb.outputs.name }}
+          draft: true
