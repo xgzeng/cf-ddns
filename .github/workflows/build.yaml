@@ -6,8 +6,8 @@ on:
   pull_request:
     branches: ["main"]
 
-env:
-  CARGO_TERM_COLOR: always
+#env:
+#  CARGO_TERM_COLOR: always
 
 jobs:
   build:
@@ -21,9 +21,9 @@ jobs:
       # node is required by most of the actions
       - run: apt-get update && apt-get install -y nodejs
       - name: Read system info
-        uses: kenchan0130/actions-system-info@master
-        id: system-info
-      - run: echo "System info ${{ steps.system-info.outputs.system_info }}"
+        uses: kenchan0130/actions-system-info@v1.3.0
+        id: sysinfo
+      - run: echo "System info ${{ steps.sysinfo.outputs.system_info }}"
       - uses: actions/checkout@v3
       - name: "Install build deps for native-tls"
         run: ./scripts/install_builddeps.sh
@@ -40,10 +40,19 @@ jobs:
           https_proxy: ""
           http_proxy: ""
         with:
-          name: "${{ steps.system-info.outputs.name }}-${{ steps.system-info.outputs.release }}"
+          name: "${{ steps.sysinfo.outputs.name }}-${{ steps.sysinfo.outputs.release }}"
           path: target/debian/${{ steps.cargo-deb.outputs.name }}
           if-no-files-found: error
+      - name: "Rename .deb file for release"
+        id: release_deb
+        working-directory: target/debian
+        run: |
+          base_name=$(basename ${{ steps.cargo-deb.outputs.name }} .deb)
+          release_name="${base_name}_${{ steps.sysinfo.outputs.name }}-${{ steps.sysinfo.outputs.release }}.deb"
+          echo "BaseName: ${base_name}; ReleaseName: ${release_name}"
+          mv ${{ steps.cargo-deb.outputs.name }} ${release_name}
+          echo "file=target/debian/${release_name}" >> $GITHUB_OUTPUT
       - uses: softprops/action-gh-release@v2
         with:
-          files: target/debian/${{ steps.cargo-deb.outputs.name }}
+          files: ${{ steps.release_deb.outputs.file }}
           draft: true
