@@ -92,7 +92,8 @@ pub async fn get_address_records(
                 search_match: None,
             },
         })
-        .await?
+        .await
+        .context("request ListDnsRecords")?
         .result
         .into_iter()
         .filter(|record| match record.content {
@@ -172,12 +173,7 @@ impl DDnsClient {
             self.options.ipv6,
         )
         .await?;
-        log::info!(
-            "{} {} have {} records: ",
-            self.zone_name,
-            self.domain_name,
-            records.len()
-        );
+        log::info!("{} have {} records: ", self.domain_name, records.len());
         for record in &records {
             match record.content {
                 DnsContent::A { content } => log::info!("    {}", content),
@@ -268,6 +264,7 @@ impl DDnsClient {
                 content: ipaddr_to_dnscontent(ip),
             },
         };
+        log::debug!("request: {:?}", &create_record_req);
         let record = self.client.request(&create_record_req).await?.result;
         Ok(record)
     }

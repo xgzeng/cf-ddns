@@ -1,6 +1,6 @@
 [package]
 name = "cf-ddns"
-version = "0.4.4"
+version = "0.4.5"
 authors = ["Jan Christian Grünhage <jan.christian@gruenhage.xyz>"]
 edition = "2021"
 description = "A daemon to use Cloudflare as a DDNS provider"
@@ -21,6 +21,7 @@ log = "0.4"
 tokio = { version = "1.40", features = ["macros"] }
 serde_yaml = "0.9"
 cloudflare = { git = "https://github.com/xgzeng/cloudflare-rs", branch = "master" }
+#cloudflare ={ path = "vendor/cloudflare-rs/cloudflare" }
 clap = "4.5"
 pnet_datalink = "0.35"
 ipnetwork = "0.20"

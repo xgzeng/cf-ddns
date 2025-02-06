@@ -94,7 +94,7 @@ async fn main() -> Result<()> {
         // loop once
         match update_once(&config, &mut ddns_client).await {
             Ok(_) => (),
-            Err(err) => log::warn!("update dns record failed: {}, {}", err, err.root_cause()),
+            Err(err) => log::warn!("update dns record failed: {:?}", err),
         }
         tokio::time::sleep(Duration::from_secs(config.interval)).await;
     }
