@@ -3,13 +3,13 @@ use std::net::IpAddr;
 use anyhow::{Context, Result};
 
 use cloudflare::{
-    endpoints::dns::{
+    endpoints::dns::dns::{
         CreateDnsRecord, CreateDnsRecordParams, DeleteDnsRecord, DnsContent, DnsRecord,
         ListDnsRecords, ListDnsRecordsParams, UpdateDnsRecord, UpdateDnsRecordParams,
     },
-    endpoints::zone::{ListZones, ListZonesParams},
+    endpoints::zones::zone::{ListZones, ListZonesParams},
     framework::{
-        async_api::Client as CfClient, auth::Credentials, Environment, HttpApiClientConfig,
+        auth::Credentials, client::async_api::Client as CfClient, client::ClientConfig, Environment,
     },
 };
 
@@ -140,7 +140,7 @@ impl DDnsClient {
     ) -> Result<Self> {
         let client = CfClient::new(
             Credentials::UserAuthToken { token: token },
-            HttpApiClientConfig::default(),
+            ClientConfig::default(),
             Environment::Production,
         )?;
 
