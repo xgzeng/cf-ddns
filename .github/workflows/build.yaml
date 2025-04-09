@@ -54,4 +54,5 @@ jobs:
       - uses: softprops/action-gh-release@v2
         with:
           files: ${{ steps.release_deb.outputs.file }}
+          name: "Latest Release"
           draft: true

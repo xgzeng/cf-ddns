@@ -13,24 +13,24 @@ documentation = "https://git.jcg.re/jcgruenhage/cloudflare-ddns-service"
 readme = "README.md"
 
 [dependencies]
-reqwest = { version = "0.12", features = ["json"] }
-serde = { version = "1.0", features = ["derive"] }
-anyhow = "1.0"
-env_logger = "0.11"
-log = "0.4"
-tokio = { version = "1.40", features = ["macros"] }
+reqwest = { version = "0.12.15", features = ["json"] }
+serde = { version = "1.0.219", features = ["derive"] }
+anyhow = "1.0.97"
+env_logger = "0.11.8"
+log = "0.4.27"
+tokio = { version = "1.44.2", features = ["macros"] }
 serde_yaml = "0.9"
-cloudflare = { git = "https://github.com/xgzeng/cloudflare-rs", branch = "master" }
-#cloudflare ={ path = "vendor/cloudflare-rs/cloudflare" }
-clap = "4.5"
+#cloudflare = { git = "https://github.com/xgzeng/cloudflare-rs", branch = "master" }
+cloudflare ={ path = "vendor/cloudflare-rs/cloudflare" }
+clap = "4.5.35"
 pnet_datalink = "0.35"
 ipnetwork = "0.21"
 futures-util = "0.3"
-hostname = "0.4"
+hostname = "0.4.1"
 
 [target.'cfg(target_os = "linux")'.dependencies]
-netlink-packet-route = "0.21.0"
-rtnetlink = "0.14.1"
+netlink-packet-route = "0.22.0"
+rtnetlink = "0.16.0"
 
 [package.metadata.deb]
 revision = "1"
