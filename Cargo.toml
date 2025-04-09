@@ -24,13 +24,13 @@ cloudflare = { git = "https://github.com/xgzeng/cloudflare-rs", branch = "master
 #cloudflare ={ path = "vendor/cloudflare-rs/cloudflare" }
 clap = "4.5"
 pnet_datalink = "0.35"
-ipnetwork = "0.20"
+ipnetwork = "0.21"
 futures-util = "0.3"
 hostname = "0.4"
 
 [target.'cfg(target_os = "linux")'.dependencies]
-netlink-packet-route = "0.19"
-rtnetlink = "0.14"
+netlink-packet-route = "0.21.0"
+rtnetlink = "0.14.1"
 
 [package.metadata.deb]
 revision = "1"
