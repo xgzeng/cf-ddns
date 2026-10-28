@@ -7,7 +7,12 @@ A multi-provider dynamic DNS client library and daemon written in Rust.
 | `ddns-clients` | `crates/ddns-clients` | Library: `IpResolver` trait and resolvers, `DynDnsProvider` trait and providers |
 | `ddnsd` | `crates/ddnsd` | Daemon that periodically syncs a domain's A/AAAA records (owns the record-reconciliation `Updater`) |
 
-DNS providers: Cloudflare (feature `cloudflare`, on by default).
+DNS providers (features on by default):
+
+| Provider | Feature | Notes |
+|---|---|---|
+| Cloudflare | `cloudflare` | API token with `Zone:Read` and `DNS:Edit` |
+| No-IP | `noip` | at most one A and one AAAA record per hostname, which can be re-pointed but not removed; TTL is ignored; current records are read via DNS |
 
 IP resolvers: HTTP echo services (icanhazip, ipify, or custom URLs) and local
 interfaces via netlink (Linux). A `Vec` of resolvers falls back in order, per
@@ -22,14 +27,24 @@ let mut provider = CloudflareProvider::new("api-token", "example.com")?;
 let resolvers = resolve::default_resolvers(); // icanhazip, then local interfaces
 let ips = resolve::resolve_public_ips(&resolvers, &[resolve::IpFamily::V4]).await;
 
-let records = provider.list_address_records("myhost.example.com").await?;
-if records.is_empty() && let Some(ip) = ips.first() {
-    provider.create_record("myhost.example.com", *ip, None).await?;
-}
+// replace the domain's A records with the resolved addresses
+let current = provider.list("myhost.example.com").await?;
+let summary = provider
+    .update("myhost.example.com")
+    .remove_all(current.into_iter().filter(|ip| ip.is_ipv4()))
+    .add_all(ips)
+    .ttl(Some(300))
+    .send()
+    .await?;
 ```
 
-To add a DNS provider, implement `ddns_clients::providers::DynDnsProvider` (list/create/update/delete
-address records); to add an IP source, implement `ddns_clients::IpResolver`.
+Records are identified by address. One `update` can `add`/`add_all` and
+`remove`/`remove_all` several addresses, or `clear` all existing ones; existing
+records are re-pointed where possible, so provider-side settings survive.
+
+To add a DNS provider, implement `ddns_clients::providers::DynDnsProvider` (`list`,
+`update`, `apply_update`; `providers::plan_changes` computes the record operations);
+to add an IP source, implement `ddns_clients::IpResolver`.
 
 ## Daemon
 
@@ -59,6 +74,21 @@ resolvers:                   # tried in order per family; default: icanhazip, lo
   - type: local              # Linux only: global addresses of local interfaces
 ```
 
+For No-IP, `domain` is required:
+
+```yaml
+provider:
+  type: noip
+  username: "..."            # account email/username, or a DDNS key's username
+  password: "..."
+  user_agent: "..."          # optional; No-IP asks for "Company Program/Version contact@example.com"
+domain: myhost.ddns.net
+```
+
+The daemon exits when the provider rejects an update in a way only the user
+can fix (e.g. No-IP's `badauth`, `nohost`, `abuse`), and waits as long as the
+provider asks after server errors (30 minutes for No-IP).
+
 Log level is controlled with `RUST_LOG` (default `info`).
 
 ## Testing
@@ -67,20 +97,28 @@ Log level is controlled with `RUST_LOG` (default `info`).
 cargo test --workspace
 ```
 
-The Cloudflare tests in `crates/ddns-clients/tests/cloudflare_live.rs` talk to the
-real API and are skipped unless configured:
+The tests in `crates/ddns-clients/tests/live.rs` talk to the real provider
+APIs. They are `#[ignore]`d, so `cargo test` lists them as ignored; running them
+needs network access, and each record test fails if its provider's variables are
+missing (set them e.g. in an untracked `mise.local.toml` `[env]` section):
 
-| Variable | |
-|---|---|
-| `DDNS_CF_API_TOKEN` | API token with `Zone:Read` and `DNS:Edit` |
-| `DDNS_CF_ZONE` | zone to test in, e.g. `example.com` |
-| `DDNS_CF_TEST_DOMAIN` | optional; default `ddns-clients-test-<unix-seconds>.<zone>` |
-| `DDNS_CF_LIVE=1` | run only the network test that needs no credentials (bad-token handling) |
+| Provider | Variable | |
+|---|---|---|
+| Cloudflare | `DDNS_CLOUDFLARE_API_TOKEN` | API token with `Zone:Read` and `DNS:Edit` |
+| | `DDNS_CLOUDFLARE_ZONE` | zone to test in, e.g. `example.com` |
+| | `DDNS_CLOUDFLARE_TEST_DOMAIN` | optional; default `ddns-clients-test-<unix-seconds>.<zone>` |
+| No-IP | `DDNS_NOIP_USERNAME` | account username |
+| | `DDNS_NOIP_PASSWORD` | account password |
+| | `DDNS_NOIP_HOSTNAME` | existing hostname with exactly one A record, e.g. `myhost.ddns.net` |
 
 ```sh
-DDNS_CF_API_TOKEN=... DDNS_CF_ZONE=example.com \
-  cargo test -p ddns-clients --test cloudflare_live -- --nocapture
+mise run test-live
+# or: cargo test -p ddns-clients --test live -- --include-ignored --nocapture
+mise run test-live noip   # only one provider's tests
 ```
 
-The record test creates, updates and deletes A/AAAA records on the test domain
-and cleans up after itself, even on failure.
+The Cloudflare record test creates, updates and deletes A/AAAA records on the
+test domain and cleans up after itself, even on failure. The No-IP record test
+points the hostname's A record at a documentation address (`192.0.2.10`) and
+then restores it; if it fails in between, restore the address in the No-IP
+dashboard.

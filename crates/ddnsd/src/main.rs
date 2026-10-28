@@ -6,7 +6,7 @@ use std::{path::PathBuf, time::Duration};
 use anyhow::{Context, Result};
 use clap::Parser;
 use ddns_clients::{
-    CloudflareProvider, DynDnsProvider, IpResolver,
+    CloudflareProvider, DynDnsProvider, Error, IpResolver, NoIpProvider,
     resolve::{self, IpFamily},
 };
 
@@ -38,6 +38,17 @@ async fn main() -> Result<()> {
             )
             .await
         }
+        ProviderConfig::NoIp {
+            username,
+            password,
+            user_agent,
+        } => {
+            let provider = match user_agent {
+                Some(user_agent) => NoIpProvider::with_user_agent(username, password, user_agent)?,
+                None => NoIpProvider::new(username, password)?,
+            };
+            run(provider, &config).await
+        }
     }
 }
 
@@ -55,11 +66,20 @@ async fn run<P: DynDnsProvider>(provider: P, config: &Config) -> Result<()> {
     let resolvers = config.resolvers();
     let families = config.families();
 
+    let interval = Duration::from_secs(config.interval);
     loop {
+        let mut delay = interval;
         if let Err(err) = update_once(&resolvers, &families, &mut updater).await {
+            match err.downcast_ref::<Error>() {
+                Some(Error::Rejected(_)) => {
+                    return Err(err.context("giving up, fix the configuration and restart"));
+                }
+                Some(Error::Unavailable { retry_after, .. }) => delay = delay.max(*retry_after),
+                _ => {}
+            }
             log::warn!("update dns record failed: {err:?}");
         }
-        tokio::time::sleep(Duration::from_secs(config.interval)).await;
+        tokio::time::sleep(delay).await;
     }
 }
 

@@ -5,8 +5,9 @@ edition.workspace = true
 description = "A multi-provider dynamic DNS client library written in Rust."
 
 [features]
-default = ["cloudflare"]
+default = ["cloudflare", "noip"]
 cloudflare = ["dep:serde", "dep:serde_json", "reqwest/json", "reqwest/query"]
+noip = ["reqwest/query", "tokio/net"]
 
 [dependencies]
 async-trait = "0.1"

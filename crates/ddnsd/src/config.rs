@@ -6,13 +6,24 @@ use ddns_clients::resolve::{AnyResolver, HttpResolver, IpFamily};
 #[derive(Debug, serde::Deserialize)]
 #[serde(tag = "type", rename_all = "lowercase", deny_unknown_fields)]
 pub enum ProviderConfig {
-    Cloudflare { api_token: String, zone: String },
+    Cloudflare {
+        api_token: String,
+        zone: String,
+    },
+    NoIp {
+        username: String,
+        password: String,
+        /// No-IP asks for `Company NameOfProgram/Version maintainer-contact@example.com`.
+        user_agent: Option<String>,
+    },
 }
 
 impl ProviderConfig {
-    fn zone(&self) -> &str {
+    /// The zone that `<hostname>.<zone>` default domains belong to.
+    fn zone(&self) -> Option<&str> {
         match self {
-            ProviderConfig::Cloudflare { zone, .. } => zone,
+            ProviderConfig::Cloudflare { zone, .. } => Some(zone),
+            ProviderConfig::NoIp { .. } => None,
         }
     }
 }
@@ -80,12 +91,11 @@ impl Config {
             bail!("resolvers must not be empty");
         }
         if config.domain.is_none() {
+            let Some(zone) = config.provider.zone() else {
+                bail!("domain must be set for this provider");
+            };
             log::info!("domain is not set, use <hostname>.<zone> as domain");
-            config.domain = Some(format!(
-                "{}.{}",
-                hostname::get()?.to_string_lossy(),
-                config.provider.zone()
-            ));
+            config.domain = Some(format!("{}.{zone}", hostname::get()?.to_string_lossy()));
         }
         Ok(config)
     }
@@ -184,7 +194,9 @@ resolvers:
         let config = Config::load(&path).unwrap();
         fs::remove_file(path).unwrap();
 
-        let ProviderConfig::Cloudflare { api_token, zone } = &config.provider;
+        let ProviderConfig::Cloudflare { api_token, zone } = &config.provider else {
+            panic!("unexpected provider {:?}", config.provider);
+        };
         assert_eq!(api_token, "secret");
         assert_eq!(zone, "example.com");
         assert_eq!(config.domain(), "myhost.example.com");
@@ -240,6 +252,40 @@ resolvers:
         let err = Config::load(&path).unwrap_err();
         fs::remove_file(path).unwrap();
         assert!(err.to_string().contains("resolvers"));
+    }
+
+    #[test]
+    fn noip() {
+        let provider = "
+provider:
+  type: noip
+  username: me@example.com
+  password: secret
+";
+        let path = write_config(
+            "noip",
+            &format!("{provider}domain: myhost.ddns.net\n"),
+            0o600,
+        );
+        let config = Config::load(&path).unwrap();
+        fs::remove_file(path).unwrap();
+        let ProviderConfig::NoIp {
+            username,
+            password,
+            user_agent,
+        } = &config.provider
+        else {
+            panic!("unexpected provider {:?}", config.provider);
+        };
+        assert_eq!(username, "me@example.com");
+        assert_eq!(password, "secret");
+        assert_eq!(user_agent, &None);
+        assert_eq!(config.domain(), "myhost.ddns.net");
+
+        let path = write_config("noip-nodomain", provider, 0o600);
+        let err = Config::load(&path).unwrap_err();
+        fs::remove_file(path).unwrap();
+        assert!(err.to_string().contains("domain must be set"), "{err}");
     }
 
     #[test]

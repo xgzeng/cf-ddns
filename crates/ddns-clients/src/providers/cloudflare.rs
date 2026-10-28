@@ -7,8 +7,8 @@ use async_trait::async_trait;
 use reqwest::RequestBuilder;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
-use super::DynDnsProvider;
-use crate::{AddressRecord, Error, Result};
+use super::{DynDnsProvider, RecordUpdate, UpdateBuilder, UpdateSummary, plan_changes};
+use crate::{Error, Result};
 
 const BASE_URL: &str = "https://api.cloudflare.com/client/v4";
 
@@ -115,18 +115,13 @@ fn parse_response<T: DeserializeOwned>(status: u16, body: &str) -> Result<T> {
     }
 }
 
-fn to_address_record(record: DnsRecord) -> Option<AddressRecord> {
+/// The id and address of an A/AAAA record; `None` for other types.
+fn address_record(record: DnsRecord) -> Option<(String, IpAddr)> {
     let ip = match record.r#type.as_str() {
         "A" | "AAAA" => record.content.parse().ok()?,
         _ => return None,
     };
-    Some(AddressRecord { id: record.id, ip })
-}
-
-fn expect_address_record(record: DnsRecord) -> Result<AddressRecord> {
-    let id = record.id.clone();
-    to_address_record(record)
-        .ok_or_else(|| Error::provider(format!("cloudflare returned non-address record {id}")))
+    Some((record.id, ip))
 }
 
 impl CloudflareProvider {
@@ -168,57 +163,61 @@ impl CloudflareProvider {
         self.zone_id = Some(zone.id.clone());
         Ok(zone.id)
     }
-}
 
-#[async_trait]
-impl DynDnsProvider for CloudflareProvider {
-    async fn list_address_records(&mut self, domain: &str) -> Result<Vec<AddressRecord>> {
+    /// Ids and addresses of all A/AAAA records of `domain`.
+    async fn address_records(&mut self, domain: &str) -> Result<Vec<(String, IpAddr)>> {
         let zone_id = self.zone_id().await?;
         let request = self
             .client
             .get(format!("{BASE_URL}/zones/{zone_id}/dns_records"))
             .query(&[("name", domain), ("per_page", "100")]);
         let records: Vec<DnsRecord> = self.call(request).await?;
-        Ok(records.into_iter().filter_map(to_address_record).collect())
+        Ok(records.into_iter().filter_map(address_record).collect())
+    }
+}
+
+#[async_trait]
+impl DynDnsProvider for CloudflareProvider {
+    async fn list(&mut self, domain: &str) -> Result<Vec<IpAddr>> {
+        let records = self.address_records(domain).await?;
+        Ok(records.into_iter().map(|(_, ip)| ip).collect())
     }
 
-    async fn create_record(
-        &mut self,
-        domain: &str,
-        ip: IpAddr,
-        ttl: Option<u32>,
-    ) -> Result<AddressRecord> {
-        let zone_id = self.zone_id().await?;
-        let request = self
-            .client
-            .post(format!("{BASE_URL}/zones/{zone_id}/dns_records"))
-            .json(&RecordBody::new(domain, ip, ttl));
-        expect_address_record(self.call(request).await?)
+    fn update<'a>(&'a mut self, domain: &str) -> UpdateBuilder<'a> {
+        UpdateBuilder::new(self, domain)
     }
 
-    async fn update_record(
-        &mut self,
-        domain: &str,
-        id: &str,
-        ip: IpAddr,
-        ttl: Option<u32>,
-    ) -> Result<AddressRecord> {
+    async fn apply_update(&mut self, update: RecordUpdate) -> Result<UpdateSummary> {
+        let existing = self.address_records(&update.domain).await?;
+        let plan = plan_changes(&existing, &update);
         let zone_id = self.zone_id().await?;
-        // PATCH keeps fields we don't send, e.g. proxied, comment and tags
-        let request = self
-            .client
-            .patch(format!("{BASE_URL}/zones/{zone_id}/dns_records/{id}"))
-            .json(&RecordBody::new(domain, ip, ttl));
-        expect_address_record(self.call(request).await?)
-    }
+        let records_url = format!("{BASE_URL}/zones/{zone_id}/dns_records");
 
-    async fn delete_record(&mut self, id: &str) -> Result<()> {
-        let zone_id = self.zone_id().await?;
-        let request = self
-            .client
-            .delete(format!("{BASE_URL}/zones/{zone_id}/dns_records/{id}"));
-        let _: Deleted = self.call(request).await?;
-        Ok(())
+        for (id, ip) in &plan.repoint {
+            // PATCH keeps fields we don't send, e.g. proxied, comment and tags
+            let request = self
+                .client
+                .patch(format!("{records_url}/{id}"))
+                .json(&RecordBody::new(&update.domain, *ip, update.ttl));
+            let _: DnsRecord = self.call(request).await?;
+            log::debug!("{}: re-pointed record {id} to {ip}", update.domain);
+        }
+        for id in &plan.delete {
+            let request = self.client.delete(format!("{records_url}/{id}"));
+            let _: Deleted = self.call(request).await?;
+            log::debug!("{}: deleted record {id}", update.domain);
+        }
+        for ip in &plan.create {
+            let request = self.client.post(&records_url).json(&RecordBody::new(
+                &update.domain,
+                *ip,
+                update.ttl,
+            ));
+            let _: DnsRecord = self.call(request).await?;
+            log::debug!("{}: created record for {ip}", update.domain);
+        }
+
+        Ok(plan.summary())
     }
 }
 
@@ -305,18 +304,12 @@ mod tests {
             {"id":"d","type":"CNAME","content":"other.example.com","name":"h.example.com"}
         ]}"#;
         let records: Vec<DnsRecord> = parse_response(200, body).unwrap();
-        let records: Vec<_> = records.into_iter().filter_map(to_address_record).collect();
+        let records: Vec<_> = records.into_iter().filter_map(address_record).collect();
         assert_eq!(
             records,
             vec![
-                AddressRecord {
-                    id: "a".into(),
-                    ip: "1.2.3.4".parse().unwrap()
-                },
-                AddressRecord {
-                    id: "b".into(),
-                    ip: "2001:db8::1".parse().unwrap()
-                },
+                ("a".to_string(), "1.2.3.4".parse().unwrap()),
+                ("b".to_string(), "2001:db8::1".parse().unwrap()),
             ]
         );
     }

@@ -1,4 +1,4 @@
-use std::net::AddrParseError;
+use std::{net::AddrParseError, time::Duration};
 
 /// Errors returned by this crate.
 #[derive(Debug, thiserror::Error)]
@@ -28,12 +28,47 @@ pub enum Error {
     /// A DNS provider reported an error.
     #[error("dns provider error")]
     Provider(#[source] Box<dyn std::error::Error + Send + Sync>),
+
+    /// A DNS provider rejected the request; retrying cannot succeed until the
+    /// configuration (e.g. credentials or domain) is fixed.
+    #[error("dns provider rejected the request")]
+    Rejected(#[source] Box<dyn std::error::Error + Send + Sync>),
+
+    /// A DNS provider is temporarily unavailable and asks clients not to
+    /// retry before `retry_after` has passed.
+    #[error("dns provider unavailable, retry in {}s", .retry_after.as_secs())]
+    Unavailable {
+        retry_after: Duration,
+        #[source]
+        source: Box<dyn std::error::Error + Send + Sync>,
+    },
+
+    /// The provider cannot make the requested change.
+    #[error("unsupported update: {0}")]
+    Unsupported(String),
 }
 
 impl Error {
     /// Wraps an arbitrary error from a [`DynDnsProvider`](crate::providers::DynDnsProvider) implementation.
     pub fn provider(err: impl Into<Box<dyn std::error::Error + Send + Sync>>) -> Self {
         Error::Provider(err.into())
+    }
+
+    /// Wraps a provider error that must not be retried; see [`Error::Rejected`].
+    pub fn rejected(err: impl Into<Box<dyn std::error::Error + Send + Sync>>) -> Self {
+        Error::Rejected(err.into())
+    }
+
+    /// Wraps a provider error that may be retried after `retry_after`; see
+    /// [`Error::Unavailable`].
+    pub fn unavailable(
+        retry_after: Duration,
+        err: impl Into<Box<dyn std::error::Error + Send + Sync>>,
+    ) -> Self {
+        Error::Unavailable {
+            retry_after,
+            source: err.into(),
+        }
     }
 
     /// Displays this error followed by its chain of sources, `: `-separated.
