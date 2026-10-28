@@ -5,7 +5,7 @@ use crate::{AddressRecord, Result};
 /// A DNS service that can manage the address records of a domain.
 ///
 /// Implementations only perform the raw record operations; deciding which
-/// records to change is done by [`Updater`](crate::Updater).
+/// records to change is left to the caller.
 pub trait DnsProvider {
     /// Lists all A and AAAA records of `domain`.
     fn list_address_records(

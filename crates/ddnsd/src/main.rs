@@ -1,15 +1,17 @@
 mod config;
+mod updater;
 
 use std::{path::PathBuf, time::Duration};
 
 use anyhow::{Context, Result};
 use clap::Parser;
 use ddns_clients::{
-    CloudflareProvider, DnsProvider, Updater, UpdaterOptions,
-    detect::{self, DetectOptions},
+    CloudflareProvider, DnsProvider, IpResolver,
+    resolve::{self, IpFamily},
 };
 
 use config::{Config, ProviderConfig};
+use updater::{Updater, UpdaterOptions};
 
 /// Dynamic DNS daemon: keeps a domain's A/AAAA records pointed at this host.
 #[derive(Parser)]
@@ -50,28 +52,36 @@ async fn run<P: DnsProvider>(provider: P, config: &Config) -> Result<()> {
             max_records: config.max_records,
         },
     );
-    let detect_options = DetectOptions {
-        ipv4: config.ipv4,
-        ipv6: config.ipv6,
-    };
+    let resolvers = config.resolvers();
+    let families = config.families();
 
     loop {
-        if let Err(err) = update_once(&detect_options, &mut updater).await {
+        if let Err(err) = update_once(&resolvers, &families, &mut updater).await {
             log::warn!("update dns record failed: {err:?}");
         }
         tokio::time::sleep(Duration::from_secs(config.interval)).await;
     }
 }
 
-async fn update_once<P: DnsProvider>(
-    detect_options: &DetectOptions,
+async fn update_once<R: IpResolver, P: DnsProvider>(
+    resolver: &R,
+    families: &[IpFamily],
     updater: &mut Updater<P>,
 ) -> Result<()> {
-    let addrs = detect::detect_public_ips(detect_options).await;
+    let addrs = resolve::resolve_public_ips(resolver, families).await;
     if addrs.is_empty() {
         log::warn!("no public ip address found");
         return Ok(());
     }
-    updater.update_ips(&addrs).await?;
+    let summary = updater.update_ips(&addrs).await?;
+    if !summary.is_unchanged() {
+        log::info!(
+            "update complete: kept={}, updated={}, deleted={}, created={}",
+            summary.kept,
+            summary.updated,
+            summary.deleted,
+            summary.created
+        );
+    }
     Ok(())
 }

@@ -1,6 +1,7 @@
 use std::{fs::File, os::unix::fs::PermissionsExt, path::Path};
 
 use anyhow::{Result, bail};
+use ddns_clients::resolve::{AnyResolver, HttpResolver, IpFamily};
 
 #[derive(Debug, serde::Deserialize)]
 #[serde(tag = "type", rename_all = "lowercase", deny_unknown_fields)]
@@ -12,6 +13,33 @@ impl ProviderConfig {
     fn zone(&self) -> &str {
         match self {
             ProviderConfig::Cloudflare { zone, .. } => zone,
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, serde::Deserialize)]
+#[serde(tag = "type", rename_all = "lowercase", deny_unknown_fields)]
+pub enum ResolverConfig {
+    Icanhazip,
+    Ipify,
+    Http {
+        ipv4_url: Option<String>,
+        ipv6_url: Option<String>,
+    },
+    #[cfg(target_os = "linux")]
+    Local,
+}
+
+impl From<&ResolverConfig> for AnyResolver {
+    fn from(config: &ResolverConfig) -> Self {
+        match config {
+            ResolverConfig::Icanhazip => HttpResolver::icanhazip().into(),
+            ResolverConfig::Ipify => HttpResolver::ipify().into(),
+            ResolverConfig::Http { ipv4_url, ipv6_url } => {
+                HttpResolver::new(ipv4_url.clone(), ipv6_url.clone()).into()
+            }
+            #[cfg(target_os = "linux")]
+            ResolverConfig::Local => ddns_clients::resolve::LocalResolver.into(),
         }
     }
 }
@@ -34,6 +62,9 @@ pub struct Config {
     pub ttl: u32,
     #[serde(default = "default_max_records")]
     pub max_records: usize,
+    /// Tried in order, per address family.
+    #[serde(default = "default_resolvers")]
+    pub resolvers: Vec<ResolverConfig>,
 }
 
 impl Config {
@@ -45,6 +76,9 @@ impl Config {
         }
 
         let mut config: Config = serde_yaml::from_reader(File::open(path)?)?;
+        if config.resolvers.is_empty() {
+            bail!("resolvers must not be empty");
+        }
         if config.domain.is_none() {
             log::info!("domain is not set, use <hostname>.<zone> as domain");
             config.domain = Some(format!(
@@ -64,6 +98,22 @@ impl Config {
     pub fn ttl(&self) -> Option<u32> {
         (self.ttl != 0).then_some(self.ttl)
     }
+
+    /// The enabled address families.
+    pub fn families(&self) -> Vec<IpFamily> {
+        let mut families = vec![];
+        if self.ipv4 {
+            families.push(IpFamily::V4);
+        }
+        if self.ipv6 {
+            families.push(IpFamily::V6);
+        }
+        families
+    }
+
+    pub fn resolvers(&self) -> Vec<AnyResolver> {
+        self.resolvers.iter().map(AnyResolver::from).collect()
+    }
 }
 
 fn yes() -> bool {
@@ -80,6 +130,14 @@ fn default_ttl() -> u32 {
 
 fn default_max_records() -> usize {
     2
+}
+
+fn default_resolvers() -> Vec<ResolverConfig> {
+    vec![
+        ResolverConfig::Icanhazip,
+        #[cfg(target_os = "linux")]
+        ResolverConfig::Local,
+    ]
 }
 
 #[cfg(test)]
@@ -116,6 +174,10 @@ ipv4: false
 interval: 60
 ttl: 0
 max_records: 4
+resolvers:
+  - type: ipify
+  - type: http
+    ipv4_url: https://ip4.example.com
 ",
             0o600,
         );
@@ -131,6 +193,17 @@ max_records: 4
         assert_eq!(config.interval, 60);
         assert_eq!(config.ttl(), None);
         assert_eq!(config.max_records, 4);
+        assert_eq!(config.families(), vec![IpFamily::V6]);
+        assert_eq!(
+            config.resolvers,
+            vec![
+                ResolverConfig::Ipify,
+                ResolverConfig::Http {
+                    ipv4_url: Some("https://ip4.example.com".into()),
+                    ipv6_url: None,
+                },
+            ]
+        );
     }
 
     #[test]
@@ -149,6 +222,8 @@ max_records: 4
         assert_eq!(config.interval, 300);
         assert_eq!(config.ttl(), Some(600));
         assert_eq!(config.max_records, 2);
+        assert_eq!(config.families(), vec![IpFamily::V4, IpFamily::V6]);
+        assert_eq!(config.resolvers, default_resolvers());
     }
 
     #[test]
@@ -157,6 +232,14 @@ max_records: 4
         let err = Config::load(&path).unwrap_err();
         fs::remove_file(path).unwrap();
         assert!(err.to_string().contains("readable by others"));
+    }
+
+    #[test]
+    fn rejects_empty_resolvers() {
+        let path = write_config("noresolver", &format!("{MINIMAL}resolvers: []\n"), 0o600);
+        let err = Config::load(&path).unwrap_err();
+        fs::remove_file(path).unwrap();
+        assert!(err.to_string().contains("resolvers"));
     }
 
     #[test]

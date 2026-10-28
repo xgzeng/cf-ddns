@@ -19,6 +19,3 @@ tokio = { workspace = true, features = ["rt"] }
 [target.'cfg(target_os = "linux")'.dependencies]
 netlink-packet-route = "0.33"
 rtnetlink = "0.23.0"
-
-[dev-dependencies]
-tokio = { workspace = true, features = ["rt", "macros"] }

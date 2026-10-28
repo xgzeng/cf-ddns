@@ -1,6 +1,6 @@
 use std::net::IpAddr;
 
-use crate::{AddressRecord, DnsProvider, Result};
+use ddns_clients::{AddressRecord, DnsProvider, Result};
 
 /// Settings for an [`Updater`].
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -68,26 +68,6 @@ impl<P: DnsProvider> Updater<P> {
             records: vec![],
             records_dirty: true,
         }
-    }
-
-    /// The managed domain.
-    pub fn domain(&self) -> &str {
-        &self.domain
-    }
-
-    /// The cached records, as of the last successful update.
-    pub fn records(&self) -> &[AddressRecord] {
-        &self.records
-    }
-
-    /// Returns a reference to the underlying provider.
-    pub fn provider(&self) -> &P {
-        &self.provider
-    }
-
-    /// Consumes the updater, returning the underlying provider.
-    pub fn into_provider(self) -> P {
-        self.provider
     }
 
     fn is_enabled(&self, ip: &IpAddr) -> bool {
@@ -179,7 +159,6 @@ impl<P: DnsProvider> Updater<P> {
         }
 
         self.records_dirty = false;
-        log::info!("update complete successfully");
         Ok(summary)
     }
 }
@@ -209,7 +188,7 @@ fn diff_records(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::Error;
+    use ddns_clients::Error;
 
     fn ip(s: &str) -> IpAddr {
         s.parse().unwrap()
@@ -334,8 +313,8 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(summary.created, 2);
-        assert_eq!(u.provider().ips(), vec![ip("1.1.1.1"), ip("2001:4860::1")]);
-        assert_eq!(u.records().len(), 2);
+        assert_eq!(u.provider.ips(), vec![ip("1.1.1.1"), ip("2001:4860::1")]);
+        assert_eq!(u.records.len(), 2);
     }
 
     #[tokio::test]
@@ -350,7 +329,7 @@ mod tests {
                 ..Default::default()
             }
         );
-        assert_eq!(u.provider().records, vec![rec("a", "2.2.2.2")]);
+        assert_eq!(u.provider.records, vec![rec("a", "2.2.2.2")]);
     }
 
     #[tokio::test]
@@ -359,7 +338,7 @@ mod tests {
         let mut u = updater(provider, UpdaterOptions::default());
         let summary = u.update_ips(&[ip("2.2.2.2")]).await.unwrap();
         assert_eq!(summary.deleted, 1);
-        assert_eq!(u.provider().records, vec![rec("b", "2.2.2.2")]);
+        assert_eq!(u.provider.records, vec![rec("b", "2.2.2.2")]);
     }
 
     #[tokio::test]
@@ -371,7 +350,7 @@ mod tests {
         let mut u = updater(MockProvider::default(), options);
         let summary = u.update_ips(&[ip("1.1.1.1"), ip("2.2.2.2")]).await.unwrap();
         assert_eq!(summary.created, 1);
-        assert_eq!(u.provider().records.len(), 1);
+        assert_eq!(u.provider.records.len(), 1);
     }
 
     #[tokio::test]
@@ -393,7 +372,7 @@ mod tests {
                 ..Default::default()
             }
         );
-        assert_eq!(u.provider().ips(), vec![ip("1.1.1.1"), ip("2001:4860::1")]);
+        assert_eq!(u.provider.ips(), vec![ip("1.1.1.1"), ip("2001:4860::1")]);
     }
 
     #[tokio::test]
@@ -411,6 +390,6 @@ mod tests {
 
         u.update_ips(&[ip("2.2.2.2")]).await.unwrap();
         assert_eq!(u.provider.list_calls, 2);
-        assert_eq!(u.provider().records, vec![rec("new1", "2.2.2.2")]);
+        assert_eq!(u.provider.records, vec![rec("new1", "2.2.2.2")]);
     }
 }
