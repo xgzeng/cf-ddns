@@ -14,3 +14,6 @@ log.workspace = true
 serde = { version = "1.0.219", features = ["derive"] }
 serde_yaml = "0.9"
 tokio = { workspace = true, features = ["rt", "macros", "time"] }
+
+[dev-dependencies]
+async-trait = "0.1"

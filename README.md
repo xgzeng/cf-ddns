@@ -4,7 +4,7 @@ A multi-provider dynamic DNS client library and daemon written in Rust.
 
 | Crate | Path | |
 |---|---|---|
-| `ddns-clients` | `crates/ddns-clients` | Library: `IpResolver` trait and resolvers, `DnsProvider` trait and providers |
+| `ddns-clients` | `crates/ddns-clients` | Library: `IpResolver` trait and resolvers, `DynDnsProvider` trait and providers |
 | `ddnsd` | `crates/ddnsd` | Daemon that periodically syncs a domain's A/AAAA records (owns the record-reconciliation `Updater`) |
 
 DNS providers: Cloudflare (feature `cloudflare`, on by default).
@@ -16,7 +16,7 @@ address family.
 ## Library
 
 ```rust
-use ddns_clients::{CloudflareProvider, DnsProvider, resolve};
+use ddns_clients::{CloudflareProvider, DynDnsProvider, resolve};
 
 let mut provider = CloudflareProvider::new("api-token", "example.com")?;
 let resolvers = resolve::default_resolvers(); // icanhazip, then local interfaces
@@ -28,7 +28,7 @@ if records.is_empty() && let Some(ip) = ips.first() {
 }
 ```
 
-To add a DNS provider, implement `ddns_clients::DnsProvider` (list/create/update/delete
+To add a DNS provider, implement `ddns_clients::providers::DynDnsProvider` (list/create/update/delete
 address records); to add an IP source, implement `ddns_clients::IpResolver`.
 
 ## Daemon
@@ -60,3 +60,27 @@ resolvers:                   # tried in order per family; default: icanhazip, lo
 ```
 
 Log level is controlled with `RUST_LOG` (default `info`).
+
+## Testing
+
+```sh
+cargo test --workspace
+```
+
+The Cloudflare tests in `crates/ddns-clients/tests/cloudflare_live.rs` talk to the
+real API and are skipped unless configured:
+
+| Variable | |
+|---|---|
+| `DDNS_CF_API_TOKEN` | API token with `Zone:Read` and `DNS:Edit` |
+| `DDNS_CF_ZONE` | zone to test in, e.g. `example.com` |
+| `DDNS_CF_TEST_DOMAIN` | optional; default `ddns-clients-test-<unix-seconds>.<zone>` |
+| `DDNS_CF_LIVE=1` | run only the network test that needs no credentials (bad-token handling) |
+
+```sh
+DDNS_CF_API_TOKEN=... DDNS_CF_ZONE=example.com \
+  cargo test -p ddns-clients --test cloudflare_live -- --nocapture
+```
+
+The record test creates, updates and deletes A/AAAA records on the test domain
+and cleans up after itself, even on failure.

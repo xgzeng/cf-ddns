@@ -1,5 +1,7 @@
 use std::net::IpAddr;
 
+use async_trait::async_trait;
+
 use super::{IpFamily, IpResolver};
 use crate::Result;
 
@@ -48,6 +50,7 @@ impl HttpResolver {
     }
 }
 
+#[async_trait]
 impl IpResolver for HttpResolver {
     async fn resolve(&self, family: IpFamily) -> Result<Vec<IpAddr>> {
         let url = match family {

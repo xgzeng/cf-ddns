@@ -6,7 +6,7 @@ use std::{path::PathBuf, time::Duration};
 use anyhow::{Context, Result};
 use clap::Parser;
 use ddns_clients::{
-    CloudflareProvider, DnsProvider, IpResolver,
+    CloudflareProvider, DynDnsProvider, IpResolver,
     resolve::{self, IpFamily},
 };
 
@@ -41,7 +41,7 @@ async fn main() -> Result<()> {
     }
 }
 
-async fn run<P: DnsProvider>(provider: P, config: &Config) -> Result<()> {
+async fn run<P: DynDnsProvider>(provider: P, config: &Config) -> Result<()> {
     let mut updater = Updater::new(
         provider,
         config.domain(),
@@ -63,7 +63,7 @@ async fn run<P: DnsProvider>(provider: P, config: &Config) -> Result<()> {
     }
 }
 
-async fn update_once<R: IpResolver, P: DnsProvider>(
+async fn update_once<R: IpResolver, P: DynDnsProvider>(
     resolver: &R,
     families: &[IpFamily],
     updater: &mut Updater<P>,

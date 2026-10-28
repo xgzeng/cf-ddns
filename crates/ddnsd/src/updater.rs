@@ -1,6 +1,6 @@
 use std::net::IpAddr;
 
-use ddns_clients::{AddressRecord, DnsProvider, Result};
+use ddns_clients::{AddressRecord, DynDnsProvider, Result};
 
 /// Settings for an [`Updater`].
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -58,7 +58,7 @@ pub struct Updater<P> {
     records_dirty: bool,
 }
 
-impl<P: DnsProvider> Updater<P> {
+impl<P: DynDnsProvider> Updater<P> {
     /// Creates an updater managing `domain` through `provider`.
     pub fn new(provider: P, domain: impl Into<String>, options: UpdaterOptions) -> Self {
         Updater {
@@ -188,6 +188,7 @@ fn diff_records(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use async_trait::async_trait;
     use ddns_clients::Error;
 
     fn ip(s: &str) -> IpAddr {
@@ -231,7 +232,8 @@ mod tests {
         }
     }
 
-    impl DnsProvider for MockProvider {
+    #[async_trait]
+    impl DynDnsProvider for MockProvider {
         async fn list_address_records(&mut self, _domain: &str) -> Result<Vec<AddressRecord>> {
             self.list_calls += 1;
             self.check_fail()?;

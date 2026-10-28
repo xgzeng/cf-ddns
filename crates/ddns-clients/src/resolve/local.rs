@@ -1,5 +1,6 @@
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
+use async_trait::async_trait;
 use futures_util::TryStreamExt;
 use netlink_packet_route::{
     AddressFamily,
@@ -17,6 +18,7 @@ use crate::Result;
 #[derive(Debug, Clone, Copy, Default)]
 pub struct LocalResolver;
 
+#[async_trait]
 impl IpResolver for LocalResolver {
     async fn resolve(&self, family: IpFamily) -> Result<Vec<IpAddr>> {
         let (conn, handle, _) = rtnetlink::new_connection()?;

@@ -31,7 +31,7 @@ pub enum Error {
 }
 
 impl Error {
-    /// Wraps an arbitrary error from a [`DnsProvider`](crate::DnsProvider) implementation.
+    /// Wraps an arbitrary error from a [`DynDnsProvider`](crate::providers::DynDnsProvider) implementation.
     pub fn provider(err: impl Into<Box<dyn std::error::Error + Send + Sync>>) -> Self {
         Error::Provider(err.into())
     }

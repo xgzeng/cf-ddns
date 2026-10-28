@@ -15,6 +15,8 @@ mod local;
 
 use std::net::IpAddr;
 
+use async_trait::async_trait;
+
 use crate::Result;
 
 pub use http::HttpResolver;
@@ -41,19 +43,21 @@ impl IpFamily {
 }
 
 /// A source of this host's public IP addresses.
-pub trait IpResolver {
+#[async_trait]
+pub trait IpResolver: Send + Sync {
     /// Resolves the public addresses of `family`.
     ///
     /// An empty list means this resolver found none (or does not support
     /// `family`); fallbacks then try the next resolver.
-    fn resolve(&self, family: IpFamily) -> impl Future<Output = Result<Vec<IpAddr>>> + Send;
+    async fn resolve(&self, family: IpFamily) -> Result<Vec<IpAddr>>;
 }
 
 /// Tries each resolver in order and returns the first non-empty result.
 ///
 /// Failures are logged and skipped; only if every resolver fails is the last
 /// error returned.
-impl<R: IpResolver + Sync> IpResolver for Vec<R> {
+#[async_trait]
+impl<R: IpResolver> IpResolver for Vec<R> {
     async fn resolve(&self, family: IpFamily) -> Result<Vec<IpAddr>> {
         let mut last_err = None;
         for resolver in self {
@@ -84,6 +88,7 @@ pub enum AnyResolver {
     Local(LocalResolver),
 }
 
+#[async_trait]
 impl IpResolver for AnyResolver {
     async fn resolve(&self, family: IpFamily) -> Result<Vec<IpAddr>> {
         match self {
@@ -143,6 +148,7 @@ mod tests {
         v6: Option<Vec<IpAddr>>,
     }
 
+    #[async_trait]
     impl IpResolver for Fixed {
         async fn resolve(&self, family: IpFamily) -> Result<Vec<IpAddr>> {
             let addrs = match family {

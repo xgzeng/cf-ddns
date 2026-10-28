@@ -1,87 +1,123 @@
-//! [Cloudflare](https://www.cloudflare.com/) DNS provider.
+//! [Cloudflare](https://www.cloudflare.com/) DNS provider, using the
+//! [v4 REST API](https://developers.cloudflare.com/api/) directly.
 
-use std::net::IpAddr;
+use std::{fmt, net::IpAddr};
 
-use cloudflare::{
-    endpoints::dns::dns::{
-        CreateDnsRecord, CreateDnsRecordParams, DeleteDnsRecord, DnsContent, DnsRecord,
-        ListDnsRecords, ListDnsRecordsParams, UpdateDnsRecord, UpdateDnsRecordParams,
-    },
-    endpoints::zones::zone::{ListZones, ListZonesParams},
-    framework::{
-        Environment, auth::Credentials, client::ClientConfig, client::async_api::Client as CfClient,
-    },
-};
+use async_trait::async_trait;
+use reqwest::RequestBuilder;
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
-use crate::{AddressRecord, DnsProvider, Error, Result};
+use super::DynDnsProvider;
+use crate::{AddressRecord, Error, Result};
+
+const BASE_URL: &str = "https://api.cloudflare.com/client/v4";
 
 /// Manages records of a single Cloudflare zone using an API token.
+///
+/// The token needs the `Zone:Read` and `DNS:Edit` permissions.
 pub struct CloudflareProvider {
-    client: CfClient,
+    client: reqwest::Client,
+    api_token: String,
     zone_name: String,
     zone_id: Option<String>, // zone id cache
 }
 
-impl CloudflareProvider {
-    /// Creates a provider for `zone_name`, authenticating with `api_token`.
-    ///
-    /// The zone id is looked up lazily on the first request.
-    pub fn new(api_token: impl Into<String>, zone_name: impl Into<String>) -> Result<Self> {
-        let client = CfClient::new(
-            Credentials::UserAuthToken {
-                token: api_token.into(),
-            },
-            ClientConfig::default(),
-            Environment::Production,
-        )
-        .map_err(Error::provider)?;
+/// An error response from the Cloudflare API.
+///
+/// Returned inside [`Error::Provider`]; use `downcast_ref` to inspect it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CloudflareError {
+    /// The HTTP status code.
+    pub status: u16,
+    /// The errors reported in the response body, if any.
+    pub errors: Vec<ApiMessage>,
+}
 
-        Ok(CloudflareProvider {
-            client,
-            zone_name: zone_name.into(),
-            zone_id: None,
-        })
-    }
+/// One entry of a Cloudflare API response's `errors` list.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct ApiMessage {
+    pub code: u32,
+    pub message: String,
+}
 
-    async fn zone_id(&mut self) -> Result<String> {
-        if let Some(zone_id) = &self.zone_id {
-            return Ok(zone_id.clone());
+impl fmt::Display for CloudflareError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "HTTP {}", self.status)?;
+        for (i, err) in self.errors.iter().enumerate() {
+            let sep = if i == 0 { ": " } else { "; " };
+            write!(f, "{sep}{} {}", err.code, err.message)?;
         }
-
-        let params = ListZonesParams {
-            name: Some(self.zone_name.clone()),
-            status: None,
-            page: None,
-            per_page: None,
-            order: None,
-            direction: None,
-            search_match: None,
-        };
-        let zones = self
-            .client
-            .request(&ListZones { params })
-            .await
-            .map_err(Error::provider)?
-            .result;
-        let Some(zone) = zones.into_iter().next() else {
-            return Err(Error::ZoneNotFound(self.zone_name.clone()));
-        };
-        self.zone_id = Some(zone.id.clone());
-        Ok(zone.id)
+        Ok(())
     }
 }
 
-fn ipaddr_to_dnscontent(ip: IpAddr) -> DnsContent {
+impl std::error::Error for CloudflareError {}
+
+#[derive(Debug, Deserialize)]
+struct Envelope<T> {
+    success: bool,
+    #[serde(default)]
+    errors: Vec<ApiMessage>,
+    result: Option<T>,
+}
+
+#[derive(Debug, Deserialize)]
+struct Zone {
+    id: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct DnsRecord {
+    id: String,
+    r#type: String,
+    content: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct Deleted {}
+
+#[derive(Serialize)]
+struct RecordBody<'a> {
+    r#type: &'static str,
+    name: &'a str,
+    content: IpAddr,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    ttl: Option<u32>,
+}
+
+impl<'a> RecordBody<'a> {
+    fn new(name: &'a str, ip: IpAddr, ttl: Option<u32>) -> Self {
+        RecordBody {
+            r#type: record_type(ip),
+            name,
+            content: ip,
+            ttl,
+        }
+    }
+}
+
+fn record_type(ip: IpAddr) -> &'static str {
     match ip {
-        IpAddr::V4(content) => DnsContent::A { content },
-        IpAddr::V6(content) => DnsContent::AAAA { content },
+        IpAddr::V4(_) => "A",
+        IpAddr::V6(_) => "AAAA",
+    }
+}
+
+/// Extracts the `result` of a response, or the error it describes.
+fn parse_response<T: DeserializeOwned>(status: u16, body: &str) -> Result<T> {
+    let failure = |errors| Error::provider(CloudflareError { status, errors });
+    let Ok(envelope) = serde_json::from_str::<Envelope<T>>(body) else {
+        return Err(failure(vec![]));
+    };
+    match envelope.result {
+        Some(result) if envelope.success && (200..300).contains(&status) => Ok(result),
+        _ => Err(failure(envelope.errors)),
     }
 }
 
 fn to_address_record(record: DnsRecord) -> Option<AddressRecord> {
-    let ip = match record.content {
-        DnsContent::A { content } => IpAddr::V4(content),
-        DnsContent::AAAA { content } => IpAddr::V6(content),
+    let ip = match record.r#type.as_str() {
+        "A" | "AAAA" => record.content.parse().ok()?,
         _ => return None,
     };
     Some(AddressRecord { id: record.id, ip })
@@ -93,30 +129,57 @@ fn expect_address_record(record: DnsRecord) -> Result<AddressRecord> {
         .ok_or_else(|| Error::provider(format!("cloudflare returned non-address record {id}")))
 }
 
-impl DnsProvider for CloudflareProvider {
+impl CloudflareProvider {
+    /// Creates a provider for `zone_name`, authenticating with `api_token`.
+    ///
+    /// The zone id is looked up lazily on the first request.
+    pub fn new(api_token: impl Into<String>, zone_name: impl Into<String>) -> Result<Self> {
+        let client = reqwest::Client::builder()
+            .user_agent(concat!("ddns-clients/", env!("CARGO_PKG_VERSION")))
+            .build()?;
+        Ok(CloudflareProvider {
+            client,
+            api_token: api_token.into(),
+            zone_name: zone_name.into(),
+            zone_id: None,
+        })
+    }
+
+    async fn call<T: DeserializeOwned>(&self, request: RequestBuilder) -> Result<T> {
+        let response = request.bearer_auth(&self.api_token).send().await?;
+        let status = response.status().as_u16();
+        let body = response.text().await?;
+        parse_response(status, &body)
+    }
+
+    async fn zone_id(&mut self) -> Result<String> {
+        if let Some(zone_id) = &self.zone_id {
+            return Ok(zone_id.clone());
+        }
+
+        let request = self
+            .client
+            .get(format!("{BASE_URL}/zones"))
+            .query(&[("name", &self.zone_name)]);
+        let zones: Vec<Zone> = self.call(request).await?;
+        let Some(zone) = zones.into_iter().next() else {
+            return Err(Error::ZoneNotFound(self.zone_name.clone()));
+        };
+        self.zone_id = Some(zone.id.clone());
+        Ok(zone.id)
+    }
+}
+
+#[async_trait]
+impl DynDnsProvider for CloudflareProvider {
     async fn list_address_records(&mut self, domain: &str) -> Result<Vec<AddressRecord>> {
         let zone_id = self.zone_id().await?;
-        let records = self
+        let request = self
             .client
-            .request(&ListDnsRecords {
-                zone_identifier: &zone_id,
-                params: ListDnsRecordsParams {
-                    record_type: None,
-                    name: Some(domain.to_string()),
-                    page: None,
-                    per_page: None,
-                    order: None,
-                    direction: None,
-                    search_match: None,
-                },
-            })
-            .await
-            .map_err(Error::provider)?
-            .result
-            .into_iter()
-            .filter_map(to_address_record)
-            .collect();
-        Ok(records)
+            .get(format!("{BASE_URL}/zones/{zone_id}/dns_records"))
+            .query(&[("name", domain), ("per_page", "100")]);
+        let records: Vec<DnsRecord> = self.call(request).await?;
+        Ok(records.into_iter().filter_map(to_address_record).collect())
     }
 
     async fn create_record(
@@ -126,24 +189,11 @@ impl DnsProvider for CloudflareProvider {
         ttl: Option<u32>,
     ) -> Result<AddressRecord> {
         let zone_id = self.zone_id().await?;
-        let request = CreateDnsRecord {
-            zone_identifier: &zone_id,
-            params: CreateDnsRecordParams {
-                ttl,
-                priority: None,
-                proxied: None,
-                name: domain,
-                content: ipaddr_to_dnscontent(ip),
-            },
-        };
-        log::debug!("request: {request:?}");
-        let record = self
+        let request = self
             .client
-            .request(&request)
-            .await
-            .map_err(Error::provider)?
-            .result;
-        expect_address_record(record)
+            .post(format!("{BASE_URL}/zones/{zone_id}/dns_records"))
+            .json(&RecordBody::new(domain, ip, ttl));
+        expect_address_record(self.call(request).await?)
     }
 
     async fn update_record(
@@ -154,34 +204,120 @@ impl DnsProvider for CloudflareProvider {
         ttl: Option<u32>,
     ) -> Result<AddressRecord> {
         let zone_id = self.zone_id().await?;
-        let request = UpdateDnsRecord {
-            zone_identifier: &zone_id,
-            identifier: id,
-            params: UpdateDnsRecordParams {
-                ttl,
-                proxied: None,
-                name: domain,
-                content: ipaddr_to_dnscontent(ip),
-            },
-        };
-        let record = self
+        // PATCH keeps fields we don't send, e.g. proxied, comment and tags
+        let request = self
             .client
-            .request(&request)
-            .await
-            .map_err(Error::provider)?
-            .result;
-        expect_address_record(record)
+            .patch(format!("{BASE_URL}/zones/{zone_id}/dns_records/{id}"))
+            .json(&RecordBody::new(domain, ip, ttl));
+        expect_address_record(self.call(request).await?)
     }
 
     async fn delete_record(&mut self, id: &str) -> Result<()> {
         let zone_id = self.zone_id().await?;
-        self.client
-            .request(&DeleteDnsRecord {
-                zone_identifier: &zone_id,
-                identifier: id,
-            })
-            .await
-            .map_err(Error::provider)?;
+        let request = self
+            .client
+            .delete(format!("{BASE_URL}/zones/{zone_id}/dns_records/{id}"));
+        let _: Deleted = self.call(request).await?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn cloudflare_error(err: Error) -> CloudflareError {
+        match err {
+            Error::Provider(err) => err.downcast_ref::<CloudflareError>().unwrap().clone(),
+            err => panic!("unexpected error {err:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_success() {
+        let body = r#"{"success":true,"errors":[],"messages":[],"result":[{"id":"z1","name":"example.com"}]}"#;
+        let zones: Vec<Zone> = parse_response(200, body).unwrap();
+        assert_eq!(zones[0].id, "z1");
+    }
+
+    #[test]
+    fn parse_api_error() {
+        let body = r#"{"success":false,"errors":[{"code":6003,"message":"Invalid request headers"},{"code":6111,"message":"Invalid format for Authorization header"}],"messages":[],"result":null}"#;
+        let err = cloudflare_error(parse_response::<Vec<Zone>>(400, body).unwrap_err());
+        assert_eq!(err.status, 400);
+        assert_eq!(
+            err.to_string(),
+            "HTTP 400: 6003 Invalid request headers; 6111 Invalid format for Authorization header"
+        );
+    }
+
+    #[test]
+    fn parse_null_result() {
+        let body = r#"{"success":true,"errors":[],"result":null}"#;
+        let err = cloudflare_error(parse_response::<Vec<Zone>>(200, body).unwrap_err());
+        assert_eq!(err.to_string(), "HTTP 200");
+    }
+
+    #[test]
+    fn parse_error_status() {
+        let body = r#"{"success":true,"errors":[],"result":[]}"#;
+        assert!(parse_response::<Vec<Zone>>(500, body).is_err());
+    }
+
+    #[test]
+    fn parse_non_json() {
+        let err = cloudflare_error(parse_response::<Vec<Zone>>(502, "<html>").unwrap_err());
+        assert_eq!(
+            err,
+            CloudflareError {
+                status: 502,
+                errors: vec![]
+            }
+        );
+    }
+
+    #[test]
+    fn parse_delete() {
+        let body = r#"{"success":true,"errors":[],"result":{"id":"r1"}}"#;
+        assert!(parse_response::<Deleted>(200, body).is_ok());
+    }
+
+    #[test]
+    fn record_body() {
+        let body = RecordBody::new("h.example.com", "1.2.3.4".parse().unwrap(), Some(120));
+        assert_eq!(
+            serde_json::to_string(&body).unwrap(),
+            r#"{"type":"A","name":"h.example.com","content":"1.2.3.4","ttl":120}"#
+        );
+        let body = RecordBody::new("h.example.com", "2001:db8::1".parse().unwrap(), None);
+        assert_eq!(
+            serde_json::to_string(&body).unwrap(),
+            r#"{"type":"AAAA","name":"h.example.com","content":"2001:db8::1"}"#
+        );
+    }
+
+    #[test]
+    fn address_records() {
+        let body = r#"{"success":true,"errors":[],"result":[
+            {"id":"a","type":"A","content":"1.2.3.4","name":"h.example.com","proxied":false,"ttl":1},
+            {"id":"b","type":"AAAA","content":"2001:db8::1","name":"h.example.com"},
+            {"id":"c","type":"TXT","content":"hello","name":"h.example.com"},
+            {"id":"d","type":"CNAME","content":"other.example.com","name":"h.example.com"}
+        ]}"#;
+        let records: Vec<DnsRecord> = parse_response(200, body).unwrap();
+        let records: Vec<_> = records.into_iter().filter_map(to_address_record).collect();
+        assert_eq!(
+            records,
+            vec![
+                AddressRecord {
+                    id: "a".into(),
+                    ip: "1.2.3.4".parse().unwrap()
+                },
+                AddressRecord {
+                    id: "b".into(),
+                    ip: "2001:db8::1".parse().unwrap()
+                },
+            ]
+        );
     }
 }

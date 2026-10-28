@@ -2,13 +2,13 @@
 //!
 //! - An [`IpResolver`] finds this host's public IP addresses, e.g.
 //!   [`HttpResolver`](resolve::HttpResolver); see [`resolve`].
-//! - A [`DnsProvider`] performs address record operations against a DNS
-//!   service, e.g. [`CloudflareProvider`].
+//! - A [`DynDnsProvider`] performs address record operations against a DNS
+//!   service, e.g. [`CloudflareProvider`]; see [`providers`].
 //!
 //! ```no_run
 //! # #[cfg(feature = "cloudflare")]
 //! # async fn example() -> ddns_clients::Result<()> {
-//! use ddns_clients::{CloudflareProvider, DnsProvider, resolve};
+//! use ddns_clients::{CloudflareProvider, DynDnsProvider, resolve};
 //!
 //! let mut provider = CloudflareProvider::new("api-token", "example.com")?;
 //! let resolvers = resolve::default_resolvers();
@@ -23,13 +23,12 @@
 //! ```
 
 mod error;
-mod provider;
 pub mod providers;
 mod record;
 pub mod resolve;
 
 pub use error::{Error, Result};
-pub use provider::DnsProvider;
+pub use providers::DynDnsProvider;
 #[cfg(feature = "cloudflare")]
 pub use providers::cloudflare::CloudflareProvider;
 pub use record::AddressRecord;
