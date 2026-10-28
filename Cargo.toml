@@ -1,50 +1,12 @@
-[package]
-name = "cf-ddns"
-version = "0.4.6"
-authors = ["Jan Christian Grünhage <jan.christian@gruenhage.xyz>"]
-edition = "2021"
-description = "A daemon to use Cloudflare as a DDNS provider"
-repository = "https://git.jcg.re/jcgruenhage/cloudflare-ddns-service"
-homepage = "https://git.jcg.re/jcgruenhage/cloudflare-ddns-service"
-keywords = ["cloudflare", "ddns"]
-categories = ["command-line-utilities"]
-license-file = "LICENSE"
-documentation = "https://git.jcg.re/jcgruenhage/cloudflare-ddns-service"
-readme = "README.md"
+[workspace]
+resolver = "3"
+members = ["crates/ddns-clients", "crates/ddnsd"]
 
-[dependencies]
-reqwest = { version = "0.12.15", features = ["json"] }
-serde = { version = "1.0.219", features = ["derive"] }
-anyhow = "1.0.97"
-env_logger = "0.11.8"
+[workspace.package]
+version = "0.0.1"
+edition = "2024"
+
+[workspace.dependencies]
+ddns-clients = { path = "crates/ddns-clients" }
 log = "0.4.27"
-tokio = { version = "1.44.2", features = ["macros"] }
-serde_yaml = "0.9"
-cloudflare = "0.14.0"
-clap = "4.5.35"
-pnet_datalink = "0.35"
-ipnetwork = "0.21"
-futures-util = "0.3"
-hostname = "0.4.1"
-
-[target.'cfg(target_os = "linux")'.dependencies]
-netlink-packet-route = "0.22.0"
-rtnetlink = "0.16.0"
-
-[package.metadata.deb]
-revision = "1"
-maintainer-scripts = "debian/"
-assets = [
-    [
-        "debian/cf-ddns.yaml",
-        "etc/",
-        "600",
-    ],
-    [
-        "target/release/cf-ddns",
-        "usr/bin/",
-        "755",
-    ],
-]
-conf-files = ["/etc/cf-ddns.yaml"]
-systemd-units = { enable = false }
+tokio = "1.44.2"

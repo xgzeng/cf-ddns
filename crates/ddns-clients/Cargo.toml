@@ -1,0 +1,24 @@
+[package]
+name = "ddns-clients"
+version.workspace = true
+edition.workspace = true
+description = "A multi-provider dynamic DNS client library written in Rust."
+
+[features]
+default = ["cloudflare"]
+cloudflare = ["dep:cloudflare"]
+
+[dependencies]
+cloudflare = { version = "0.14.0", optional = true }
+futures-util = "0.3"
+log.workspace = true
+reqwest = "0.13"
+thiserror = "2"
+tokio = { workspace = true, features = ["rt"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+netlink-packet-route = "0.33"
+rtnetlink = "0.23.0"
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt", "macros"] }
