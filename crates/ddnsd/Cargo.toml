@@ -2,6 +2,8 @@
 name = "ddnsd"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
 description = "Dynamic DNS daemon built on the ddns-clients library."
 
 [dependencies]

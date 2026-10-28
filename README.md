@@ -91,6 +91,34 @@ provider asks after server errors (30 minutes for No-IP).
 
 Log level is controlled with `RUST_LOG` (default `info`).
 
+## Debian package
+
+`debian/` builds the `ddnsd` package with debhelper. It installs
+`/usr/sbin/ddnsd`, a hardened `ddnsd.service` systemd unit, the `ddnsd(8)` man
+page and an example config. On Debian 13 (trixie) or later:
+
+```sh
+sudo apt install build-essential debhelper cargo rustc
+dpkg-buildpackage -us -uc     # cargo downloads the crates, so this needs network access
+sudo apt install ../ddnsd_*.deb
+```
+
+Elsewhere, `mise run deb` builds it in a `debian:trixie` container (podman, or set
+`CONTAINER_ENGINE=docker`; `DEBIAN_IMAGE` picks another release) and writes the
+packages to `target/debian/`.
+
+The service starts once `/etc/ddnsd.yaml` exists:
+
+```sh
+sudo install -m 600 /usr/share/doc/ddnsd/examples/ddnsd.example.yaml /etc/ddnsd.yaml
+sudoedit /etc/ddnsd.yaml
+sudo systemctl start ddnsd
+```
+
+It isn't restarted when ddnsd exits on a rejected update; fix the config and
+start it again. Debian's packaged Rust sets the minimum supported Rust version:
+`rust-version = "1.85"`, the version in trixie.
+
 ## Testing
 
 ```sh

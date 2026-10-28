@@ -2,6 +2,8 @@
 name = "ddns-clients"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
 description = "A multi-provider dynamic DNS client library written in Rust."
 
 [features]

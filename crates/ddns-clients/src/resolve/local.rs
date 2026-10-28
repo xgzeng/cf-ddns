@@ -60,9 +60,7 @@ impl IpResolver for LocalResolver {
                 AddressAttribute::CacheInfo(cache_info) => Some(cache_info),
                 _ => None,
             });
-            if let Some(cache_info) = cache_info
-                && (cache_info.ifa_preferred == 0 || cache_info.ifa_valid == 0)
-            {
+            if cache_info.is_some_and(|info| info.ifa_preferred == 0 || info.ifa_valid == 0) {
                 log::debug!("address {addr} is deprecated, skipping");
                 continue;
             }
